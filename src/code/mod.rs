@@ -1,6 +1,7 @@
 pub mod ldpc_impl;
 
 use sparse_bin_mat::{SparseBinMat, SparseBinSlice, SparseBinVec};
+use ark_ff::Field;
 
 pub trait AdditiveCode {
     fn setup(params: crate::types::CodeInitParams) -> Self;

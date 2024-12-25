@@ -1,4 +1,5 @@
 use crate::code::AdditiveCode;
+use ark_ff::Field;
 
 pub struct CodeInitParams {
     pub num_bits: usize,
@@ -10,17 +11,17 @@ pub struct CodeInitParams {
 pub struct CodeParams<C: AdditiveCode> {
     pub k: u32,
     pub num_bits: usize,
-    pub code_impl: C,
+    pub code_impl: C
 }
 
-pub struct SecretParams<C: AdditiveCode> {
+pub struct SecretParams<C: AdditiveCode, F: Field> {
     pub code: CodeParams<C>,
-    pub a: Vec<u32>,
+    pub a: Vec<F>,
 }
 
-pub struct Shares {
+pub struct Shares<F: Field> {
     pub shares: Vec<Share>,
-    pub z0: u64,
+    pub z0: F,
 }
 
 pub struct Share {

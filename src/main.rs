@@ -1,29 +1,32 @@
+use ark_bls12_381::Fr;
+use ark_ff::{Field, PrimeField};
+
 mod types;
 mod code;
 mod aos;
 
 use aos::{setup, deal, reconstruct};
+use types::CodeInitParams;
 
 fn main() {
-    let secret = 42;
+    let secret = Fr::from(42u128); // Секрет як елемент поля
     let c = 10;
-
-    let code_params = types::CodeInitParams {
+    let code_params = CodeInitParams {
         num_bits: 16,
         num_checks: 12,
         bit_degree: 3,
         check_degree: 4,
     };
 
-    let pp = setup(code_params, c);
-
+    let pp = setup::<Fr>(code_params, c);
     let mut shares = deal(&pp, secret);
-    
+
+    // Видалити декілька часток, щоб симулювати втрату
     shares.shares.pop();
     shares.shares.pop();
 
     let reconstructed_secret = reconstruct(&pp, &shares);
 
-    println!("Original Secret: {}", secret);
-    println!("Reconstructed Secret: {}", reconstructed_secret);
+    println!("Original Secret: {:?}", secret.into_bigint());
+    println!("Reconstructed Secret: {:?}", reconstructed_secret.into_bigint());
 }

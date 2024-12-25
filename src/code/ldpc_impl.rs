@@ -4,6 +4,7 @@ use ldpc::codes::LinearCode;
 use ldpc::decoders::{BpDecoder, LinearDecoder};
 use ldpc::noise::Probability;
 use sparse_bin_mat::{SparseBinMat, SparseBinSlice, SparseBinVec};
+use ark_ff::Field;
 
 use crate::code::AdditiveCode;
 use crate::types::CodeInitParams;
@@ -21,17 +22,13 @@ impl AdditiveCode for LdpcCode {
             .num_checks(params.num_checks)
             .bit_degree(params.bit_degree)
             .check_degree(params.check_degree)
-            .sample_with(&mut StdRng::seed_from_u64(123)) // TODO: Make seed flexible
+            .sample_with(&mut StdRng::seed_from_u64(123))
             .unwrap();
 
         let k = code.generator_matrix().number_of_rows() as u32;
         let decoder = BpDecoder::new(code.parity_check_matrix(), Probability::new(0.1), 10);
 
-        LdpcCode {
-            code,
-            decoder,
-            k
-        }
+        LdpcCode { code, decoder, k }
     }
 
     fn encode(&self, input: &SparseBinMat) -> SparseBinMat {
@@ -40,7 +37,7 @@ impl AdditiveCode for LdpcCode {
 
     fn decode(&self, input: SparseBinSlice) -> SparseBinVec {
         let right_pos = input.len();
-        let left_pos = right_pos - self.k() as usize;
+        let left_pos = right_pos - self.k as usize;
         let to_keep: Vec<usize> = (left_pos..right_pos).collect();
 
         let decoded = self.decoder.decode(input);
