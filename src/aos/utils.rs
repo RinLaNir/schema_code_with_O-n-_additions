@@ -1,10 +1,11 @@
-use sparse_bin_mat::{SparseBinSlice, SparseBinMat, SparseBinVec};
-use ark_ff::{Field, PrimeField, BigInteger};
+use std::fs::File;
+use ark_ff::{Field};
 use ldpc_toolbox::gf2::GF2;
-use ndarray::{Array1, ArrayView1};
-use num_traits::{One, Zero};
+use ndarray::Array2;
+use num_traits::{One};
+use std::io::Write;
 
-// Обчислюємо скалярний добуток у полі F
+/// Calculate dot product in field F
 pub fn dot_product<F: Field>(a: &[F], b: &[F]) -> F {
     let mut acc = F::zero();
     for (x, y) in a.iter().zip(b) {
@@ -13,25 +14,14 @@ pub fn dot_product<F: Field>(a: &[F], b: &[F]) -> F {
     acc
 }
 
-pub fn from_slice_to_number(slice: ArrayView1<GF2>) -> u32 {
-    let mut number = 0;
-    for i in 0..slice.len() {
-        if slice[i].is_one() {
-            number += 1 << i;
+fn save_matrix_to_file(matrix: &Array2<GF2>, filename: &str, nrows: usize, ncols: usize) {
+    let mut file = File::create(filename).unwrap();
+    for i in 0..nrows {
+        for j in 0..ncols {
+            let val = matrix[(i, j)];
+            let val = if val.is_one() { 1 } else { 0 };
+            write!(file, "{} ", val).unwrap();
         }
+        write!(file, "\n").unwrap();
     }
-    number
-}
-
-pub fn from_number_to_slice(number: u32, len: usize) -> Array1<GF2> {
-    let vec: Vec<GF2> = (0..len)
-        .map(|i| if (number >> i) & 1 == 1 { GF2::one() } else { GF2::zero() })
-        .collect();
-    Array1::from(vec)
-}
-
-/// Зворотна операція: з u32 в поле F
-/// Знову ж таки, проста демонстрація: записуємо u32 як 64-бітне число в поле.
-pub fn u32_to_field<F: PrimeField>(val: u32) -> F {
-    F::from(val as u64)
 }

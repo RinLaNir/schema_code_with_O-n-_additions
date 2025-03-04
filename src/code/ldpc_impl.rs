@@ -1,14 +1,10 @@
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use ldpc_toolbox::codes::ccsds::{AR4JACode, AR4JARate, AR4JAInfoSize};
 use ldpc_toolbox::encoder::Encoder;
 use ldpc_toolbox::decoder::arithmetic::Aminstarf32;
 use ldpc_toolbox::decoder::horizontal_layered::Decoder;
 use ldpc_toolbox::gf2::GF2;
-use ark_ff::Field;
 use ldpc_toolbox::decoder::DecoderOutput;
-use ldpc_toolbox::sparse::SparseMatrix;
-use ndarray::{s, Array1, Array2, ArrayBase, Data, Ix1};
+use ndarray::Array1;
 use num_traits::One;
 use crate::code::AdditiveCode;
 use crate::types::CodeInitParams;
@@ -31,26 +27,36 @@ impl AdditiveCode for LdpcCode {
     fn encode(&self, message: &Array1<GF2>) -> Array1<GF2> {
         self.encoder.encode(message)
     }
-
-    fn decode(&mut self, input: &Array1<GF2>) -> Result<DecoderOutput, DecoderOutput> {
-        let max_iterations = 200;
+    
+    fn decode(&mut self, input: &Array1<GF2>, present_positions: &[bool]) -> Result<DecoderOutput, DecoderOutput> {
+        let max_iterations = 100;
+        
+        // Check if the input vector and present_positions array have the same dimensions
+        assert_eq!(input.len(), present_positions.len(), 
+            "Input length ({}) must match present_positions length ({})", 
+            input.len(), present_positions.len());
+        
         let message: Vec<f64> = input
             .iter()
-            .map(|&elem| if elem.is_one() { -1.3863 } else { 1.3863 })
+            .zip(present_positions.iter())
+            .map(|(&elem, &is_present)| {
+                if !is_present {
+                    0.0 // LLR = 0 for erased bits (complete uncertainty)
+                } else if elem.is_one() {
+                    -1.3863 // LLR for bit 1
+                } else {
+                    1.3863  // LLR for bit 0
+                }
+            })
             .collect();
+        
         self.decoder.decode(message.as_slice(), max_iterations)
     }
-    
-    fn generator_matrix(&self) -> SparseMatrix {
-        self.code.h()
-    }
 
-    // Temporary hardcoded
     fn input_length(&self) -> u32 {
         1024
     }
 
-    // Temporary hardcoded
     fn output_length(&self) -> u32 {
         1408
     }
