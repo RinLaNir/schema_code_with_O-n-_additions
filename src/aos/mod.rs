@@ -4,6 +4,8 @@ use ark_std::rand::thread_rng;
 use ldpc_toolbox::gf2::GF2;
 use ndarray::{Array1, Array2};
 use num_traits::{One, Zero};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Instant;
 
 use crate::types::{SecretParams, CodeParams, Shares, Share, CodeInitParams};
 use crate::code::AdditiveCode;
@@ -13,6 +15,9 @@ use self::utils::{dot_product};
 pub mod utils;
 
 pub fn setup<F: PrimeField>(params: CodeInitParams, c: u32) -> SecretParams<LdpcCode, F> {
+    let start_time = Instant::now();
+    println!("Starting setup operation...");
+    
     let code_impl = LdpcCode::setup(params);
     let input_length = code_impl.input_length();
     let output_length = code_impl.output_length();
@@ -21,10 +26,24 @@ pub fn setup<F: PrimeField>(params: CodeInitParams, c: u32) -> SecretParams<Ldpc
     equal to the modulus bit size ({})", input_length, F::MODULUS_BIT_SIZE);
     
     let mut rng = thread_rng();
+    
+    println!("Generating {} random coefficients...", output_length);
+    let progress_bar = ProgressBar::new(output_length as u64);
+    progress_bar.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} coefficients generated ({percent}%)")
+            .unwrap()
+            .progress_chars("##-")
+    );
+    
     let a: Vec<F> = (0..output_length).map(|_| {
         let val = rng.gen_range(0..c);
+        progress_bar.inc(1);
         F::from(val as u64)
     }).collect();
+    
+    progress_bar.finish();
+    println!("Setup completed in: {:.2?}", start_time.elapsed());
 
     SecretParams {
         code: CodeParams {
@@ -37,21 +56,51 @@ pub fn setup<F: PrimeField>(params: CodeInitParams, c: u32) -> SecretParams<Ldpc
 }
 
 pub fn deal<F: PrimeField>(pp: &SecretParams<LdpcCode, F>, s: F) -> Shares<F> {
+    let start_time = Instant::now();
+    println!("Starting deal operation...");
+    
     let mut rng = thread_rng();
 
+    // Random vector generation phase
+    let rand_vec_start = Instant::now();
     let mut r_vec = vec![F::zero(); pp.code.input_length as usize];
+    
+    let progress_bar = ProgressBar::new(pp.code.input_length as u64);
+    progress_bar.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} random values generated ({percent}%)")
+            .unwrap()
+            .progress_chars("##-")
+    );
+    
     for i in 0..pp.code.input_length as usize {
         r_vec[i] = F::rand(&mut rng);
+        progress_bar.inc(1);
     }
+    progress_bar.finish_and_clear();
+    
+    let rand_vec_duration = rand_vec_start.elapsed();
 
     // Calculate z0 = s + Σ a_i*r_i
+    let dot_start = Instant::now();
     let mut z0 = s;
     z0 += dot_product(&pp.a, &r_vec);
+    let dot_duration = dot_start.elapsed();
 
+    // Message matrix creation
+    let matrix_start = Instant::now();
     let nrows = <F as PrimeField>::MODULUS_BIT_SIZE as usize;
     let ncols = pp.code.input_length as usize;
     let mut message_matrix = Array2::<GF2>::from_elem((nrows, ncols), GF2::zero());
 
+    let matrix_progress = ProgressBar::new(ncols as u64);
+    matrix_progress.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.yellow/blue} {pos}/{len} columns processed ({percent}%)")
+            .unwrap()
+            .progress_chars("##-")
+    );
+    
     for i in 0..ncols {
         let val_int = r_vec[i].into_bigint();
         let mut bits: Vec<bool> = val_int.to_bits_le();
@@ -59,29 +108,63 @@ pub fn deal<F: PrimeField>(pp: &SecretParams<LdpcCode, F>, s: F) -> Shares<F> {
         for (j, &b) in bits.iter().enumerate() {
             message_matrix[(j, i)] = if b { GF2::one() } else { GF2::zero() };
         }
+        matrix_progress.inc(1);
     }
+    matrix_progress.finish_and_clear();
+    
+    let matrix_duration = matrix_start.elapsed();
 
     let nrows = <F as PrimeField>::MODULUS_BIT_SIZE as usize;
     let ncols = pp.code.output_length as usize;
 
+    let encoding_start = Instant::now();
     let mut encoded_matrix = Array2::<GF2>::from_elem((nrows, ncols), GF2::zero());
+    
+    let encoding_progress = ProgressBar::new(nrows as u64);
+    encoding_progress.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.green/blue} {pos}/{len} rows encoded ({percent}%)")
+            .unwrap()
+            .progress_chars("##-")
+    );
     
     for i in 0..nrows {
         let encoded = pp.code.code_impl.encode(&message_matrix.row(i).to_owned());
         encoded_matrix.row_mut(i).assign(&encoded);
+        encoding_progress.inc(1);
     }
+    encoding_progress.finish_with_message("encoding completed");
     
+    let encoding_duration = encoding_start.elapsed();
+    
+    let shares_start = Instant::now();
     let y: Vec<(Array1<GF2>, u32)> = (0..pp.code.output_length).map(|i| {
         let y_i = encoded_matrix.column(i as usize).to_owned();
         (y_i, i)
     }).collect();
 
     let shares: Vec<Share> = y.iter().map(|(y, i)| Share { y: y.clone(), i: *i }).collect();
+    let shares_duration = shares_start.elapsed();
+    
+    let total_duration = start_time.elapsed();
+    println!("Deal operation performance breakdown:");
+    println!("  - Random vector generation: {:.2?} ({:.2}%)", 
+             rand_vec_duration, (rand_vec_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+    println!("  - Dot product calculation: {:.2?} ({:.2}%)", 
+             dot_duration, (dot_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+    println!("  - Message matrix creation: {:.2?} ({:.2}%)", 
+             matrix_duration, (matrix_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+    println!("  - Encoding phase: {:.2?} ({:.2}%)", 
+             encoding_duration, (encoding_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+    println!("  - Share creation: {:.2?} ({:.2}%)", 
+             shares_duration, (shares_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+    println!("  - Total deal time: {:.2?}", total_duration);
     
     Shares { shares, z0 }
 }
 
 pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &mut SecretParams<LdpcCode, F>, shares: &Shares<F>) -> F {
+    let start_time = Instant::now();
     let nrows = <F as PrimeField>::MODULUS_BIT_SIZE as usize;
     let ncols = pp.code.output_length as usize;
 
@@ -90,19 +173,33 @@ pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &mut SecretParams<Ldpc
         present_columns[share.i as usize] = true;
     }
     
-    // Count missing columns for diagnostics
     let missing_count = present_columns.iter().filter(|&&present| !present).count();
     println!("Missing columns: {} out of {} ({}%)", 
              missing_count, ncols, (missing_count as f64 / ncols as f64) * 100.0);
 
+    let setup_start = Instant::now();
     let mut encoded_matrix = Array2::<GF2>::from_elem((nrows, ncols), GF2::zero());
     for share in &shares.shares {
         encoded_matrix.column_mut(share.i as usize).assign(&share.y);
     }
+    let setup_duration = setup_start.elapsed();
 
     let mut decoded_matrix = Array2::<GF2>::from_elem((nrows, pp.code.input_length as usize), GF2::zero());
     let mut successful_rows = 0;
     let mut failed_rows = 0;
+
+    let progress_bar = ProgressBar::new(nrows as u64);
+    progress_bar.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} rows decoded ({percent}%) - {msg}")
+            .unwrap()
+            .progress_chars("##-")
+    );
+    progress_bar.set_message("decoding in progress...");
+
+    let decoding_start = Instant::now();
+    let mut last_update_time = Instant::now();
+    let update_interval = std::time::Duration::from_millis(200); // Update progress stats every 200ms
 
     for i in 0..nrows {
         let row_input = encoded_matrix.row(i).to_owned();
@@ -116,6 +213,7 @@ pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &mut SecretParams<Ldpc
             },
             Err(_) => {
                 failed_rows += 1;
+                progress_bar.inc(1);
                 continue;
             }
         };
@@ -128,10 +226,38 @@ pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &mut SecretParams<Ldpc
         let gf2_array = Array1::from(gf2_vec);
 
         decoded_matrix.row_mut(i).assign(&gf2_array);
+        
+        progress_bar.inc(1);
+        
+        if last_update_time.elapsed() >= update_interval {
+            progress_bar.set_message(format!(
+                "success rate: {:.2}% ({} ok, {} failed)", 
+                (successful_rows as f64 / (i + 1) as f64) * 100.0,
+                successful_rows,
+                failed_rows
+            ));
+            last_update_time = Instant::now();
+        }
     }
+    
+    let decoding_duration = decoding_start.elapsed();
+    progress_bar.finish_with_message(format!(
+        "decoding completed in {:.2?}: {:.2}% success rate", 
+        decoding_duration,
+        (successful_rows as f64 / nrows as f64) * 100.0
+    ));
     
     println!("Decoding statistics: {} rows successful, {} rows failed ({:.2}% success rate)", 
              successful_rows, failed_rows, (successful_rows as f64 / nrows as f64) * 100.0);
+
+    let reconstruction_start = Instant::now();
+    let reconstruct_bar = ProgressBar::new(pp.code.input_length as u64);
+    reconstruct_bar.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.green/blue} {pos}/{len} values reconstructed ({percent}%)")
+            .unwrap()
+            .progress_chars("##-")
+    );
 
     let mut r = vec![F::zero(); pp.code.input_length as usize];
     for i in 0..pp.code.input_length as usize {
@@ -139,9 +265,31 @@ pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &mut SecretParams<Ldpc
         let big_int = BigInteger::from_bits_le(&bool_vec);
         let val = F::from_bigint(big_int).unwrap();
         r[i] = val;
+        reconstruct_bar.inc(1);
     }
+    
+    let reconstruction_duration = reconstruction_start.elapsed();
+    reconstruct_bar.finish_with_message(format!(
+        "field elements reconstructed in {:.2?}", 
+        reconstruction_duration
+    ));
 
-    // Recover secret: s = z0 - Σ a_i*r_i
+    let final_start = Instant::now();
     let sum_ar = dot_product(&pp.a, &r);
-    shares.z0 - sum_ar
+    let result = shares.z0 - sum_ar;
+    let final_duration = final_start.elapsed();
+    
+    let total_duration = start_time.elapsed();
+    println!("Reconstruction performance breakdown:");
+    println!("  - Matrix setup: {:.2?} ({:.2}%)", 
+             setup_duration, (setup_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+    println!("  - Row decoding: {:.2?} ({:.2}%)", 
+             decoding_duration, (decoding_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+    println!("  - Field element reconstruction: {:.2?} ({:.2}%)", 
+             reconstruction_duration, (reconstruction_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+    println!("  - Final computation: {:.2?} ({:.2}%)", 
+             final_duration, (final_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+    println!("  - Total reconstruction time: {:.2?}", total_duration);
+    
+    result
 }

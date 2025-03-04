@@ -29,7 +29,7 @@ impl AdditiveCode for LdpcCode {
     }
     
     fn decode(&mut self, input: &Array1<GF2>, present_positions: &[bool]) -> Result<DecoderOutput, DecoderOutput> {
-        let max_iterations = 100;
+        let max_iterations = 300;
         
         // Check if the input vector and present_positions array have the same dimensions
         assert_eq!(input.len(), present_positions.len(), 
