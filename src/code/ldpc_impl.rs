@@ -1,54 +1,57 @@
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use ldpc::codes::LinearCode;
-use ldpc::decoders::{BpDecoder, LinearDecoder};
-use ldpc::noise::Probability;
-use sparse_bin_mat::{SparseBinMat, SparseBinSlice, SparseBinVec};
+use ldpc_toolbox::codes::ccsds::{AR4JACode, AR4JARate, AR4JAInfoSize};
+use ldpc_toolbox::encoder::Encoder;
+use ldpc_toolbox::decoder::arithmetic::Aminstarf32;
+use ldpc_toolbox::decoder::horizontal_layered::Decoder;
+use ldpc_toolbox::gf2::GF2;
 use ark_ff::Field;
-
+use ldpc_toolbox::decoder::DecoderOutput;
+use ldpc_toolbox::sparse::SparseMatrix;
+use ndarray::{s, Array1, Array2, ArrayBase, Data, Ix1};
+use num_traits::One;
 use crate::code::AdditiveCode;
 use crate::types::CodeInitParams;
 
 pub struct LdpcCode {
-    code: LinearCode,
-    decoder: BpDecoder,
-    k: u32,
+    code: AR4JACode,
+    decoder: Decoder<Aminstarf32>,
+    encoder: Encoder,
 }
 
 impl AdditiveCode for LdpcCode {
     fn setup(params: CodeInitParams) -> Self {
-        let code = LinearCode::random_regular_code()
-            .num_bits(params.num_bits)
-            .num_checks(params.num_checks)
-            .bit_degree(params.bit_degree)
-            .check_degree(params.check_degree)
-            .sample_with(&mut StdRng::seed_from_u64(123))
-            .unwrap();
+        let code = AR4JACode::new(AR4JARate::R4_5, AR4JAInfoSize::K1024);
+        let encoder = Encoder::from_h(&code.h()).unwrap();
+        let decoder = Decoder::new(code.h(), Aminstarf32::new());
 
-        let k = code.generator_matrix().number_of_rows() as u32;
-        let decoder = BpDecoder::new(code.parity_check_matrix(), Probability::new(0.1), 10);
-
-        LdpcCode { code, decoder, k }
+        LdpcCode { code, decoder, encoder }
+    }
+    
+    fn encode(&self, message: &Array1<GF2>) -> Array1<GF2> {
+        self.encoder.encode(message)
     }
 
-    fn encode(&self, input: &SparseBinMat) -> SparseBinMat {
-        input * self.code.generator_matrix()
+    fn decode(&mut self, input: &Array1<GF2>) -> Result<DecoderOutput, DecoderOutput> {
+        let max_iterations = 200;
+        let message: Vec<f64> = input
+            .iter()
+            .map(|&elem| if elem.is_one() { -1.3863 } else { 1.3863 })
+            .collect();
+        self.decoder.decode(message.as_slice(), max_iterations)
+    }
+    
+    fn generator_matrix(&self) -> SparseMatrix {
+        self.code.h()
     }
 
-    fn decode(&self, input: SparseBinSlice) -> SparseBinVec {
-        let right_pos = input.len();
-        let left_pos = right_pos - self.k as usize;
-        let to_keep: Vec<usize> = (left_pos..right_pos).collect();
-
-        let decoded = self.decoder.decode(input);
-        decoded.keep_only_positions(&to_keep).unwrap()
+    // Temporary hardcoded
+    fn input_length(&self) -> u32 {
+        1024
     }
 
-    fn generator_matrix(&self) -> &SparseBinMat {
-        self.code.generator_matrix()
-    }
-
-    fn k(&self) -> u32 {
-        self.k
+    // Temporary hardcoded
+    fn output_length(&self) -> u32 {
+        1408
     }
 }

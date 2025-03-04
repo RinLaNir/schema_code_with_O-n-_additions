@@ -1,5 +1,7 @@
 use crate::code::AdditiveCode;
 use ark_ff::Field;
+use ldpc_toolbox::gf2::GF2;
+use ndarray::Array1;
 
 pub struct CodeInitParams {
     pub num_bits: usize,
@@ -9,8 +11,8 @@ pub struct CodeInitParams {
 }
 
 pub struct CodeParams<C: AdditiveCode> {
-    pub k: u32,
-    pub num_bits: usize,
+    pub output_length: u32,
+    pub input_length: u32,
     pub code_impl: C
 }
 
@@ -25,6 +27,6 @@ pub struct Shares<F: Field> {
 }
 
 pub struct Share {
-    pub y: u32,
+    pub y: Array1<GF2>,
     pub i: u32,
 }

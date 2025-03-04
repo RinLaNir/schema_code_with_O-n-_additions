@@ -1,5 +1,9 @@
 use sparse_bin_mat::{SparseBinSlice, SparseBinMat, SparseBinVec};
 use ark_ff::{Field, PrimeField, BigInteger};
+use ldpc_toolbox::gf2::GF2;
+use ndarray::{Array1, ArrayView1};
+use num_traits::{One, Zero};
+
 // Обчислюємо скалярний добуток у полі F
 pub fn dot_product<F: Field>(a: &[F], b: &[F]) -> F {
     let mut acc = F::zero();
@@ -9,20 +13,21 @@ pub fn dot_product<F: Field>(a: &[F], b: &[F]) -> F {
     acc
 }
 
-// Перетворення бінарного рядка (SparseBinSlice) у u32
-pub fn from_slice_to_number(slice: SparseBinSlice) -> u32 {
+pub fn from_slice_to_number(slice: ArrayView1<GF2>) -> u32 {
     let mut number = 0;
     for i in 0..slice.len() {
-        if slice.is_one_at(i).unwrap() {
+        if slice[i].is_one() {
             number += 1 << i;
         }
     }
     number
 }
 
-pub fn to_sparse_bin_vec(number: u32, len: usize) -> SparseBinVec {
-    let vec = (0..len).filter(|&i| (number >> i) & 1 == 1).collect();
-    SparseBinVec::new(len, vec)
+pub fn from_number_to_slice(number: u32, len: usize) -> Array1<GF2> {
+    let vec: Vec<GF2> = (0..len)
+        .map(|i| if (number >> i) & 1 == 1 { GF2::one() } else { GF2::zero() })
+        .collect();
+    Array1::from(vec)
 }
 
 /// Зворотна операція: з u32 в поле F
