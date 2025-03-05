@@ -4,12 +4,16 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::time::Instant;
 use chrono::Local;
+use ldpc_toolbox::decoder::factory::DecoderImplementation;
+use ldpc_toolbox::codes::ccsds::{AR4JARate, AR4JAInfoSize};
 
 mod types;
 mod code;
 mod aos;
+mod aos_parallel;
 
-use aos::{setup, deal, reconstruct};
+ use aos::{setup, deal, reconstruct};
+//use aos_parallel::{setup, deal, reconstruct};
 use types::CodeInitParams;
 use crate::types::Share;
 
@@ -19,10 +23,11 @@ fn main() {
     let secret = Fr::from(42u128); // Secret as a field element
     let c = 10;
     let code_params = CodeInitParams {
-        num_bits: 16,
-        num_checks: 12,
-        bit_degree: 3,
-        check_degree: 4,
+        decoder_type: Some(DecoderImplementation::Aminstarf32),  // Explicit decoder type
+        ldpc_rate: Some(AR4JARate::R4_5),           // Explicit rate
+        ldpc_info_size: Some(AR4JAInfoSize::K1024), // Explicit info size
+        max_iterations: Some(500),                  // Custom max iterations
+        llr_value: Some(1.5),                       // Custom LLR value
     };
 
     let setup_start = Instant::now();

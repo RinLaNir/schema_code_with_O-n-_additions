@@ -1,13 +1,16 @@
 use crate::code::AdditiveCode;
 use ark_ff::Field;
 use ldpc_toolbox::gf2::GF2;
+use ldpc_toolbox::decoder::factory::DecoderImplementation;
+use ldpc_toolbox::codes::ccsds::{AR4JARate, AR4JAInfoSize};
 use ndarray::Array1;
 
 pub struct CodeInitParams {
-    pub num_bits: usize,
-    pub num_checks: usize,
-    pub bit_degree: usize,
-    pub check_degree: usize,
+    pub decoder_type: Option<DecoderImplementation>,
+    pub ldpc_rate: Option<AR4JARate>,
+    pub ldpc_info_size: Option<AR4JAInfoSize>,
+    pub max_iterations: Option<usize>,
+    pub llr_value: Option<f64>,
 }
 
 pub struct CodeParams<C: AdditiveCode> {
