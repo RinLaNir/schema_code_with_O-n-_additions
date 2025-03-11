@@ -14,6 +14,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::hash::{Hash, Hasher};
 use humantime::format_duration;
+use std::fs::File;
+use std::io::{self, Write};
+use std::path::Path;
 
 /// Result of a single benchmark run
 #[derive(Debug, Clone)]
@@ -587,6 +590,132 @@ pub fn format_duration_ms(duration: Duration) -> String {
     }
 }
 
+/// Save benchmark results to a CSV file
+pub fn save_benchmark_results_to_csv(summary: &BenchmarkSummary, file_path: &str) -> io::Result<()> {
+    // Save main summary
+    {
+        let path = format!("{}_summary.csv", file_path);
+        let mut file = File::create(path)?;
+        
+        // Write header
+        writeln!(file, "Implementation,C,InfoSize,Rate,Phase,Avg_ms,Min_ms,Max_ms,Median_ms,StdDev_ms,SuccessRate")?;
+        
+        // Write total stats
+        for (params, stats) in &summary.total_stats {
+            writeln!(file, "{},{},{:?},{:?},Total,{},{},{},{},{},{}",
+                params.implementation,
+                params.c_value,
+                params.ldpc_info_size,
+                params.ldpc_rate,
+                stats.avg.as_millis(),
+                stats.min.as_millis(),
+                stats.max.as_millis(),
+                stats.median.as_millis(),
+                stats.std_dev.as_millis(),
+                stats.success_rate
+            )?;
+        }
+        
+        // Write setup stats
+        for (params, stats) in &summary.setup_stats {
+            writeln!(file, "{},{},{:?},{:?},Setup,{},{},{},{},{},{}",
+                params.implementation,
+                params.c_value,
+                params.ldpc_info_size,
+                params.ldpc_rate,
+                stats.avg.as_millis(),
+                stats.min.as_millis(),
+                stats.max.as_millis(),
+                stats.median.as_millis(),
+                stats.std_dev.as_millis(),
+                stats.success_rate
+            )?;
+        }
+        
+        // Write deal stats
+        for (params, stats) in &summary.deal_stats {
+            writeln!(file, "{},{},{:?},{:?},Deal,{},{},{},{},{},{}",
+                params.implementation,
+                params.c_value,
+                params.ldpc_info_size,
+                params.ldpc_rate,
+                stats.avg.as_millis(),
+                stats.min.as_millis(),
+                stats.max.as_millis(),
+                stats.median.as_millis(),
+                stats.std_dev.as_millis(),
+                stats.success_rate
+            )?;
+        }
+        
+        // Write reconstruct stats
+        for (params, stats) in &summary.reconstruct_stats {
+            writeln!(file, "{},{},{:?},{:?},Reconstruct,{},{},{},{},{},{}",
+                params.implementation,
+                params.c_value,
+                params.ldpc_info_size,
+                params.ldpc_rate,
+                stats.avg.as_millis(),
+                stats.min.as_millis(),
+                stats.max.as_millis(),
+                stats.median.as_millis(),
+                stats.std_dev.as_millis(),
+                stats.success_rate
+            )?;
+        }
+    }
+    
+    // Save detailed phase stats
+    {
+        let path = format!("{}_phases.csv", file_path);
+        let mut file = File::create(path)?;
+        
+        // Write header
+        writeln!(file, "Implementation,C,InfoSize,Rate,Operation,Phase,Avg_ms,Min_ms,Max_ms,Percentage")?;
+        
+        // Write deal phase stats
+        for (params, stats) in &summary.deal_stats {
+            if let Some(phase_metrics) = &stats.phase_metrics {
+                for (name, phase_stat) in phase_metrics {
+                    writeln!(file, "{},{},{:?},{:?},Deal,\"{}\",{},{},{},{}",
+                        params.implementation,
+                        params.c_value,
+                        params.ldpc_info_size,
+                        params.ldpc_rate,
+                        name,
+                        phase_stat.avg_duration.as_micros() as f64 / 1000.0,
+                        phase_stat.min_duration.as_micros() as f64 / 1000.0,
+                        phase_stat.max_duration.as_micros() as f64 / 1000.0,
+                        phase_stat.avg_percentage
+                    )?;
+                }
+            }
+        }
+        
+        // Write reconstruct phase stats
+        for (params, stats) in &summary.reconstruct_stats {
+            if let Some(phase_metrics) = &stats.phase_metrics {
+                for (name, phase_stat) in phase_metrics {
+                    writeln!(file, "{},{},{:?},{:?},Reconstruct,\"{}\",{},{},{},{}",
+                        params.implementation,
+                        params.c_value,
+                        params.ldpc_info_size,
+                        params.ldpc_rate,
+                        name,
+                        phase_stat.avg_duration.as_micros() as f64 / 1000.0,
+                        phase_stat.min_duration.as_micros() as f64 / 1000.0,
+                        phase_stat.max_duration.as_micros() as f64 / 1000.0,
+                        phase_stat.avg_percentage
+                    )?;
+                }
+            }
+        }
+    }
+    
+    println!("Benchmark results saved to {}_summary.csv and {}_phases.csv", file_path, file_path);
+    Ok(())
+}
+
 /// Print benchmark results in a table format
 pub fn print_benchmark_results(summary: &BenchmarkSummary, show_detail: bool) {
     println!("\n{:-^80}", " BENCHMARK RESULTS SUMMARY ");
@@ -728,7 +857,9 @@ pub fn run_comprehensive_benchmark<F: PrimeField<BigInt = BigInt<4>> + Debug>(
     implementations: &[Implementation],
     runs_per_config: usize,
     show_detail: bool,
+    output_file: Option<&str>,
 ) {
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
     println!("Starting comprehensive benchmark at: {}", Local::now().format("%Y-%m-%d %H:%M:%S"));
     
     let params = generate_benchmark_params(
@@ -757,6 +888,49 @@ pub fn run_comprehensive_benchmark<F: PrimeField<BigInt = BigInt<4>> + Debug>(
     
     let summary = calculate_stats(&all_results);
     print_benchmark_results(&summary, show_detail);
+    
+    // Save results to CSV if output file is specified
+    if let Some(file_path) = output_file {
+        let output_path = if file_path.is_empty() {
+            // Create descriptive filename
+            let implementation_str = if implementations.contains(&Implementation::Sequential) && 
+                                        implementations.contains(&Implementation::Parallel) {
+                "both"
+            } else if implementations.contains(&Implementation::Sequential) {
+                "seq"
+            } else {
+                "par"
+            };
+            
+            let c_values_str = c_values.iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<String>>()
+                .join("_");
+            
+            let rates_str = ldpc_rates.iter()
+                .map(|r| format!("{:?}", r))
+                .collect::<Vec<String>>()
+                .join("_");
+            
+            let info_sizes_str = ldpc_info_sizes.iter()
+                .map(|s| format!("{:?}", s))
+                .collect::<Vec<String>>()
+                .join("_");
+                
+            format!("benchmark_{}_c{}_{}_{}_{}",
+                timestamp,
+                c_values_str,
+                implementation_str,
+                rates_str,
+                info_sizes_str)
+        } else {
+            file_path.to_string()
+        };
+        
+        if let Err(e) = save_benchmark_results_to_csv(&summary, &output_path) {
+            println!("Error saving benchmark results to CSV: {}", e);
+        }
+    }
     
     println!("\nBenchmark completed at: {}", Local::now().format("%Y-%m-%d %H:%M:%S"));
 }

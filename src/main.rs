@@ -58,9 +58,11 @@ fn print_help() {
     println!("  --c=N1,N2,...       Comma-separated list of c values to test");
     println!("  --rates=R1,R2,...   Comma-separated list of rates to test (1_2, 2_3, etc.)");
     println!("  --sizes=S1,S2,...   Comma-separated list of info sizes to test (K1024, etc.)");
+    println!("  --output            Save results to CSV files with auto-generated names");
+    println!("  --output=FILE       Save results to CSV files (FILE_summary.csv and FILE_phases.csv)");
     println!("");
     println!("Example:");
-    println!("  {} benchmark --runs=5 --c=10,20 --detail", env::args().next().unwrap_or_else(|| String::from("schema_code")));
+    println!("  {} benchmark --runs=5 --c=10,20 --detail --output", env::args().next().unwrap_or_else(|| String::from("schema_code")));
 }
 
 /// Parse command line arguments for benchmarking
@@ -73,6 +75,7 @@ fn parse_benchmark_args(args: &[String]) -> (
     Vec<Implementation>,           // implementations
     usize,                         // runs_per_config
     bool,                          // show_detail
+    Option<String>,                // output_file
 ) {
     // Default values
     let mut c_values = vec![10, 20];
@@ -83,6 +86,7 @@ fn parse_benchmark_args(args: &[String]) -> (
     let mut implementations = vec![Implementation::Sequential, Implementation::Parallel];
     let mut runs_per_config = 3;
     let mut show_detail = false;
+    let mut output_file = None;
 
     for arg in args {
         if arg.starts_with("--runs=") {
@@ -97,6 +101,13 @@ fn parse_benchmark_args(args: &[String]) -> (
             implementations = vec![Implementation::Sequential];
         } else if arg == "--parallel" {
             implementations = vec![Implementation::Parallel];
+        } else if arg == "--output" {
+            // Auto-generate output filename (will be handled in the benchmark function)
+            output_file = Some(String::new());
+        } else if arg.starts_with("--output=") {
+            if let Some(file_path) = arg.strip_prefix("--output=") {
+                output_file = Some(file_path.to_string());
+            }
         } else if arg.starts_with("--c=") {
             if let Some(values_str) = arg.strip_prefix("--c=") {
                 c_values = values_str
@@ -156,6 +167,7 @@ fn parse_benchmark_args(args: &[String]) -> (
         implementations,
         runs_per_config,
         show_detail,
+        output_file,
     )
 }
 
@@ -170,6 +182,7 @@ fn run_benchmarks(args: &[String]) {
         implementations,
         runs_per_config,
         show_detail,
+        output_file,
     ) = parse_benchmark_args(args);
 
     run_comprehensive_benchmark::<Fr>(
@@ -181,6 +194,7 @@ fn run_benchmarks(args: &[String]) {
         &implementations,
         runs_per_config,
         show_detail,
+        output_file.as_deref(),
     );
 }
 
