@@ -7,7 +7,8 @@ use num_traits::{One, Zero};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Instant;
 
-use crate::types::{SecretParams, CodeParams, Shares, Share, CodeInitParams};
+use crate::types::{SecretParams, CodeParams, Shares, Share, CodeInitParams,
+                    PhaseMetrics, DealMetrics, ReconstructMetrics};
 use crate::code::AdditiveCode;
 use crate::code::ldpc_impl::LdpcCode;
 use self::utils::{dot_product};
@@ -16,7 +17,7 @@ pub mod utils;
 
 pub fn setup<F: PrimeField>(params: CodeInitParams, c: u32) -> SecretParams<LdpcCode, F> {
     let start_time = Instant::now();
-    println!("Starting setup operation...");
+    // println!("Starting setup operation...");
     
     let code_impl = LdpcCode::setup(params);
     let input_length = code_impl.input_length();
@@ -147,23 +148,39 @@ pub fn deal<F: PrimeField>(pp: &SecretParams<LdpcCode, F>, s: F) -> Shares<F> {
     let shares_duration = shares_start.elapsed();
     
     let total_duration = start_time.elapsed();
+    
+    // Create metrics
+    let metrics = DealMetrics {
+        rand_vec_generation: PhaseMetrics::new("Random vector generation", rand_vec_duration, total_duration),
+        dot_product: PhaseMetrics::new("Dot product calculation", dot_duration, total_duration),
+        matrix_creation: PhaseMetrics::new("Message matrix creation", matrix_duration, total_duration),
+        encoding: PhaseMetrics::new("Encoding phase", encoding_duration, total_duration),
+        share_creation: PhaseMetrics::new("Share creation", shares_duration, total_duration),
+        total_time: total_duration,
+    };
+    
+    // Print metrics for debugging during development
     println!("Deal operation performance breakdown:");
     println!("  - Random vector generation: {:.2?} ({:.2}%)", 
-             rand_vec_duration, (rand_vec_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             rand_vec_duration, metrics.rand_vec_generation.percentage);
     println!("  - Dot product calculation: {:.2?} ({:.2}%)", 
-             dot_duration, (dot_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             dot_duration, metrics.dot_product.percentage);
     println!("  - Message matrix creation: {:.2?} ({:.2}%)", 
-             matrix_duration, (matrix_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             matrix_duration, metrics.matrix_creation.percentage);
     println!("  - Encoding phase: {:.2?} ({:.2}%)", 
-             encoding_duration, (encoding_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             encoding_duration, metrics.encoding.percentage);
     println!("  - Share creation: {:.2?} ({:.2}%)", 
-             shares_duration, (shares_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             shares_duration, metrics.share_creation.percentage);
     println!("  - Total deal time: {:.2?}", total_duration);
     
-    Shares { shares, z0 }
+    Shares { 
+        shares, 
+        z0,
+        metrics: Some(metrics),
+    }
 }
 
-pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &mut SecretParams<LdpcCode, F>, shares: &Shares<F>) -> F {
+pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &mut SecretParams<LdpcCode, F>, shares: &Shares<F>) -> (F, Option<ReconstructMetrics>) {
     let start_time = Instant::now();
     let nrows = <F as PrimeField>::MODULUS_BIT_SIZE as usize;
     let ncols = pp.code.output_length as usize;
@@ -280,16 +297,26 @@ pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &mut SecretParams<Ldpc
     let final_duration = final_start.elapsed();
     
     let total_duration = start_time.elapsed();
+    
+    // Create metrics
+    let metrics = ReconstructMetrics {
+        matrix_setup: PhaseMetrics::new("Matrix setup", setup_duration, total_duration),
+        row_decoding: PhaseMetrics::new("Row decoding", decoding_duration, total_duration),
+        field_reconstruction: PhaseMetrics::new("Field element reconstruction", reconstruction_duration, total_duration),
+        final_computation: PhaseMetrics::new("Final computation", final_duration, total_duration),
+        total_time: total_duration,
+    };
+    
     println!("Reconstruction performance breakdown:");
     println!("  - Matrix setup: {:.2?} ({:.2}%)", 
-             setup_duration, (setup_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             setup_duration, metrics.matrix_setup.percentage);
     println!("  - Row decoding: {:.2?} ({:.2}%)", 
-             decoding_duration, (decoding_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             decoding_duration, metrics.row_decoding.percentage);
     println!("  - Field element reconstruction: {:.2?} ({:.2}%)", 
-             reconstruction_duration, (reconstruction_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             reconstruction_duration, metrics.field_reconstruction.percentage);
     println!("  - Final computation: {:.2?} ({:.2}%)", 
-             final_duration, (final_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             final_duration, metrics.final_computation.percentage);
     println!("  - Total reconstruction time: {:.2?}", total_duration);
     
-    result
+    (result, Some(metrics))
 }

@@ -9,7 +9,8 @@ use std::time::Instant;
 use std::sync::{Arc, Mutex};
 use rayon::prelude::*;
 
-use crate::types::{SecretParams, CodeParams, Shares, Share, CodeInitParams};
+use crate::types::{SecretParams, CodeParams, Shares, Share, CodeInitParams,
+                  PhaseMetrics, DealMetrics, ReconstructMetrics};
 use crate::code::AdditiveCode;
 use crate::code::ldpc_impl::LdpcCode;
 use self::utils::{dot_product};
@@ -109,14 +110,12 @@ pub fn deal<F: PrimeField>(pp: &SecretParams<LdpcCode, F>, s: F) -> Shares<F> {
             .progress_chars("##-")
     );
     
-    // Process matrix columns in parallel with shared matrix
     let message_matrix = Arc::new(Mutex::new(message_matrix));
     (0..ncols).into_par_iter().for_each(|i| {
         let val_int = r_vec[i].into_bigint();
         let mut bits: Vec<bool> = val_int.to_bits_le();
         bits.resize(nrows, false);
         
-        // Create local slice to reduce lock contention
         let column_data: Vec<GF2> = bits.iter()
             .map(|&b| if b { GF2::one() } else { GF2::zero() })
             .collect();
@@ -127,7 +126,6 @@ pub fn deal<F: PrimeField>(pp: &SecretParams<LdpcCode, F>, s: F) -> Shares<F> {
             matrix[(j, i)] = value;
         }
         
-        // Use a separate atomic counter to update the progress bar
         matrix_progress.inc(1);
     });
     matrix_progress.finish_and_clear();
@@ -185,23 +183,39 @@ pub fn deal<F: PrimeField>(pp: &SecretParams<LdpcCode, F>, s: F) -> Shares<F> {
     let shares_duration = shares_start.elapsed();
     
     let total_duration = start_time.elapsed();
+    
+    // Create metrics
+    let metrics = DealMetrics {
+        rand_vec_generation: PhaseMetrics::new("Random vector generation", rand_vec_duration, total_duration),
+        dot_product: PhaseMetrics::new("Dot product calculation", dot_duration, total_duration),
+        matrix_creation: PhaseMetrics::new("Message matrix creation", matrix_duration, total_duration),
+        encoding: PhaseMetrics::new("Encoding phase", encoding_duration, total_duration),
+        share_creation: PhaseMetrics::new("Share creation", shares_duration, total_duration),
+        total_time: total_duration,
+    };
+    
+    // Print metrics for debugging during development
     println!("Deal operation performance breakdown:");
     println!("  - Random vector generation: {:.2?} ({:.2}%)", 
-             rand_vec_duration, (rand_vec_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             rand_vec_duration, metrics.rand_vec_generation.percentage);
     println!("  - Dot product calculation: {:.2?} ({:.2}%)", 
-             dot_duration, (dot_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             dot_duration, metrics.dot_product.percentage);
     println!("  - Message matrix creation: {:.2?} ({:.2}%)", 
-             matrix_duration, (matrix_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             matrix_duration, metrics.matrix_creation.percentage);
     println!("  - Encoding phase: {:.2?} ({:.2}%)", 
-             encoding_duration, (encoding_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             encoding_duration, metrics.encoding.percentage);
     println!("  - Share creation: {:.2?} ({:.2}%)", 
-             shares_duration, (shares_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             shares_duration, metrics.share_creation.percentage);
     println!("  - Total deal time: {:.2?}", total_duration);
     
-    Shares { shares, z0 }
+    Shares {
+        shares, 
+        z0,
+        metrics: Some(metrics),
+    }
 }
 
-pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &SecretParams<LdpcCode, F>, shares: &Shares<F>) -> F {
+pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &SecretParams<LdpcCode, F>, shares: &Shares<F>) -> (F, Option<ReconstructMetrics>) {
     let start_time = Instant::now();
     let nrows = <F as PrimeField>::MODULUS_BIT_SIZE as usize;
     let ncols = pp.code.output_length as usize;
@@ -222,14 +236,13 @@ pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &SecretParams<LdpcCode
     }
     let setup_duration = setup_start.elapsed();
 
-    let multi_progress = MultiProgress::new();
     let decoded_matrix = Arc::new(Mutex::new(
         Array2::<GF2>::from_elem((nrows, pp.code.input_length as usize), GF2::zero())
     ));
     let successful_rows = Arc::new(Mutex::new(0));
     let failed_rows = Arc::new(Mutex::new(0));
 
-    let progress_bar = multi_progress.add(ProgressBar::new(nrows as u64));
+    let progress_bar = ProgressBar::new(nrows as u64);
     progress_bar.set_style(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} rows decoded ({percent}%) - {msg}")
@@ -237,44 +250,10 @@ pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &SecretParams<LdpcCode
             .progress_chars("##-")
     );
     progress_bar.set_message("decoding in progress...");
+    progress_bar.enable_steady_tick(std::time::Duration::from_millis(200));
 
     let decoding_start = Instant::now();
     
-    // Spawn a thread to update the progress message periodically
-    let progress_update_bar = progress_bar.clone();
-    let progress_successful_rows = Arc::clone(&successful_rows);
-    let progress_failed_rows = Arc::clone(&failed_rows);
-    let progress_handle = std::thread::spawn(move || {
-        let update_interval = std::time::Duration::from_millis(200);
-        let mut last_position = 0;
-        
-        loop {
-            std::thread::sleep(update_interval);
-            let current_position = progress_update_bar.position();
-            
-            if current_position >= nrows as u64 {
-                break;
-            }
-            
-            if current_position > last_position {
-                let successful = *progress_successful_rows.lock().unwrap();
-                let failed = *progress_failed_rows.lock().unwrap();
-                let total = successful + failed;
-                
-                if total > 0 {
-                    progress_update_bar.set_message(format!(
-                        "success rate: {:.2}% ({} ok, {} failed)", 
-                        (successful as f64 / total as f64) * 100.0,
-                        successful,
-                        failed
-                    ));
-                }
-                
-                last_position = current_position;
-            }
-        }
-    });
-
     // Parallel decoding
     let present_columns = Arc::new(present_columns);
     let encoded_matrix = Arc::new(encoded_matrix);
@@ -309,9 +288,6 @@ pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &SecretParams<LdpcCode
         progress_bar.inc(1);
     });
     
-    // Wait for the progress update thread to complete
-    let _ = progress_handle.join();
-    
     let successful_count = *successful_rows.lock().unwrap();
     let failed_count = *failed_rows.lock().unwrap();
     
@@ -326,7 +302,7 @@ pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &SecretParams<LdpcCode
              successful_count, failed_count, (successful_count as f64 / nrows as f64) * 100.0);
 
     let reconstruction_start = Instant::now();
-    let reconstruct_bar = multi_progress.add(ProgressBar::new(pp.code.input_length as u64));
+    let reconstruct_bar = ProgressBar::new(pp.code.input_length as u64);
     reconstruct_bar.set_style(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] {bar:40.green/blue} {pos}/{len} values reconstructed ({percent}%)")
@@ -363,16 +339,26 @@ pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(pp: &SecretParams<LdpcCode
     let final_duration = final_start.elapsed();
     
     let total_duration = start_time.elapsed();
+    
+    // Create metrics
+    let metrics = ReconstructMetrics {
+        matrix_setup: PhaseMetrics::new("Matrix setup", setup_duration, total_duration),
+        row_decoding: PhaseMetrics::new("Row decoding", decoding_duration, total_duration),
+        field_reconstruction: PhaseMetrics::new("Field element reconstruction", reconstruction_duration, total_duration),
+        final_computation: PhaseMetrics::new("Final computation", final_duration, total_duration),
+        total_time: total_duration,
+    };
+    
     println!("Reconstruction performance breakdown:");
     println!("  - Matrix setup: {:.2?} ({:.2}%)", 
-             setup_duration, (setup_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             setup_duration, metrics.matrix_setup.percentage);
     println!("  - Row decoding: {:.2?} ({:.2}%)", 
-             decoding_duration, (decoding_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             decoding_duration, metrics.row_decoding.percentage);
     println!("  - Field element reconstruction: {:.2?} ({:.2}%)", 
-             reconstruction_duration, (reconstruction_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             reconstruction_duration, metrics.field_reconstruction.percentage);
     println!("  - Final computation: {:.2?} ({:.2}%)", 
-             final_duration, (final_duration.as_micros() as f64 / total_duration.as_micros() as f64) * 100.0);
+             final_duration, metrics.final_computation.percentage);
     println!("  - Total reconstruction time: {:.2?}", total_duration);
     
-    result
+    (result, Some(metrics))
 }
