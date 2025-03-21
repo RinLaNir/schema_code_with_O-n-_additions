@@ -4,7 +4,7 @@ use ark_std::rand::thread_rng;
 use ldpc_toolbox::gf2::GF2;
 use ndarray::{Array1, Array2};
 use num_traits::{One, Zero};
-use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
 use rayon::prelude::*;
