@@ -58,11 +58,13 @@ fn print_help() {
     println!("  --c=N1,N2,...       Comma-separated list of c values to test");
     println!("  --rates=R1,R2,...   Comma-separated list of rates to test (1_2, 2_3, etc.)");
     println!("  --sizes=S1,S2,...   Comma-separated list of info sizes to test (K1024, etc.)");
+    println!("  --decoders=D1,D2,...Comma-separated list of decoder types to test");
+    println!("                      (Aminstarf32, Phif64, Tanhf32, etc. or 'all' for all types)");
     println!("  --output            Save results to CSV files with auto-generated names");
     println!("  --output=FILE       Save results to CSV files (FILE_summary.csv and FILE_phases.csv)");
     println!("");
     println!("Example:");
-    println!("  {} benchmark --runs=5 --c=10,20 --detail --output", env::args().next().unwrap_or_else(|| String::from("schema_code")));
+    println!("  {} benchmark --runs=5 --c=10,20 --detail --decoders=Aminstarf32,Phif64 --output", env::args().next().unwrap_or_else(|| String::from("schema_code")));
 }
 
 /// Parse command line arguments for benchmarking
@@ -79,8 +81,46 @@ fn parse_benchmark_args(args: &[String]) -> (
 ) {
     // Default values
     let mut c_values = vec![10, 20];
-    let shares_to_remove_values = vec![100];
-    let decoder_types = vec![DecoderImplementation::Aminstarf32];
+    let shares_to_remove_values = vec![250];
+    // By default, use all decoder types if not specified
+    let mut decoder_types = vec![
+        DecoderImplementation::Phif64,
+        DecoderImplementation::Phif32,
+        DecoderImplementation::Tanhf64,
+        DecoderImplementation::Tanhf32,
+        DecoderImplementation::Minstarapproxf64,
+        DecoderImplementation::Minstarapproxf32,
+        DecoderImplementation::Minstarapproxi8,
+        DecoderImplementation::Minstarapproxi8Jones,
+        DecoderImplementation::Minstarapproxi8PartialHardLimit,
+        DecoderImplementation::Minstarapproxi8JonesPartialHardLimit,
+        DecoderImplementation::Minstarapproxi8Deg1Clip,
+        DecoderImplementation::Minstarapproxi8JonesDeg1Clip,
+        DecoderImplementation::Minstarapproxi8PartialHardLimitDeg1Clip,
+        DecoderImplementation::Minstarapproxi8JonesPartialHardLimitDeg1Clip,
+        DecoderImplementation::Aminstarf64,
+        DecoderImplementation::Aminstarf32,
+        DecoderImplementation::Aminstari8,
+        DecoderImplementation::Aminstari8Jones,
+        DecoderImplementation::Aminstari8PartialHardLimit,
+        DecoderImplementation::Aminstari8JonesPartialHardLimit,
+        DecoderImplementation::Aminstari8Deg1Clip,
+        DecoderImplementation::Aminstari8JonesDeg1Clip,
+        DecoderImplementation::Aminstari8PartialHardLimitDeg1Clip,
+        DecoderImplementation::Aminstari8JonesPartialHardLimitDeg1Clip,
+        DecoderImplementation::HLPhif64,
+        DecoderImplementation::HLPhif32,
+        DecoderImplementation::HLTanhf64,
+        DecoderImplementation::HLTanhf32,
+        DecoderImplementation::HLMinstarapproxf64,
+        DecoderImplementation::HLMinstarapproxf32,
+        DecoderImplementation::HLMinstarapproxi8,
+        DecoderImplementation::HLMinstarapproxi8PartialHardLimit,
+        DecoderImplementation::HLAminstarf64,
+        DecoderImplementation::HLAminstarf32,
+        DecoderImplementation::HLAminstari8,
+        DecoderImplementation::HLAminstari8PartialHardLimit,
+    ];
     let mut ldpc_rates = vec![AR4JARate::R1_2, AR4JARate::R4_5];
     let mut ldpc_info_sizes = vec![AR4JAInfoSize::K1024];
     let mut implementations = vec![Implementation::Sequential, Implementation::Parallel];
@@ -153,6 +193,64 @@ fn parse_benchmark_args(args: &[String]) -> (
                 
                 if ldpc_info_sizes.is_empty() {
                     ldpc_info_sizes = vec![AR4JAInfoSize::K1024];
+                }
+            }
+        } else if arg.starts_with("--decoders=") {
+            if let Some(values_str) = arg.strip_prefix("--decoders=") {
+                // Check if "all" was explicitly specified
+                if values_str.trim() == "all" {
+                    // Keep the default (all decoders)
+                } else {
+                    // Parse specific decoder types
+                    let specified_decoders = values_str
+                        .split(',')
+                        .filter_map(|s| {
+                            match s.trim() {
+                                "Phif64" => Some(DecoderImplementation::Phif64),
+                                "Phif32" => Some(DecoderImplementation::Phif32),
+                                "Tanhf64" => Some(DecoderImplementation::Tanhf64),
+                                "Tanhf32" => Some(DecoderImplementation::Tanhf32),
+                                "Minstarapproxf64" => Some(DecoderImplementation::Minstarapproxf64),
+                                "Minstarapproxf32" => Some(DecoderImplementation::Minstarapproxf32),
+                                "Minstarapproxi8" => Some(DecoderImplementation::Minstarapproxi8),
+                                "Minstarapproxi8Jones" => Some(DecoderImplementation::Minstarapproxi8Jones),
+                                "Minstarapproxi8PartialHardLimit" => Some(DecoderImplementation::Minstarapproxi8PartialHardLimit),
+                                "Minstarapproxi8JonesPartialHardLimit" => Some(DecoderImplementation::Minstarapproxi8JonesPartialHardLimit),
+                                "Minstarapproxi8Deg1Clip" => Some(DecoderImplementation::Minstarapproxi8Deg1Clip),
+                                "Minstarapproxi8JonesDeg1Clip" => Some(DecoderImplementation::Minstarapproxi8JonesDeg1Clip),
+                                "Minstarapproxi8PartialHardLimitDeg1Clip" => Some(DecoderImplementation::Minstarapproxi8PartialHardLimitDeg1Clip),
+                                "Minstarapproxi8JonesPartialHardLimitDeg1Clip" => Some(DecoderImplementation::Minstarapproxi8JonesPartialHardLimitDeg1Clip),
+                                "Aminstarf64" => Some(DecoderImplementation::Aminstarf64),
+                                "Aminstarf32" => Some(DecoderImplementation::Aminstarf32),
+                                "Aminstari8" => Some(DecoderImplementation::Aminstari8),
+                                "Aminstari8Jones" => Some(DecoderImplementation::Aminstari8Jones),
+                                "Aminstari8PartialHardLimit" => Some(DecoderImplementation::Aminstari8PartialHardLimit),
+                                "Aminstari8JonesPartialHardLimit" => Some(DecoderImplementation::Aminstari8JonesPartialHardLimit),
+                                "Aminstari8Deg1Clip" => Some(DecoderImplementation::Aminstari8Deg1Clip),
+                                "Aminstari8JonesDeg1Clip" => Some(DecoderImplementation::Aminstari8JonesDeg1Clip),
+                                "Aminstari8PartialHardLimitDeg1Clip" => Some(DecoderImplementation::Aminstari8PartialHardLimitDeg1Clip),
+                                "Aminstari8JonesPartialHardLimitDeg1Clip" => Some(DecoderImplementation::Aminstari8JonesPartialHardLimitDeg1Clip),
+                                "HLPhif64" => Some(DecoderImplementation::HLPhif64),
+                                "HLPhif32" => Some(DecoderImplementation::HLPhif32),
+                                "HLTanhf64" => Some(DecoderImplementation::HLTanhf64),
+                                "HLTanhf32" => Some(DecoderImplementation::HLTanhf32),
+                                "HLMinstarapproxf64" => Some(DecoderImplementation::HLMinstarapproxf64),
+                                "HLMinstarapproxf32" => Some(DecoderImplementation::HLMinstarapproxf32),
+                                "HLMinstarapproxi8" => Some(DecoderImplementation::HLMinstarapproxi8),
+                                "HLMinstarapproxi8PartialHardLimit" => Some(DecoderImplementation::HLMinstarapproxi8PartialHardLimit),
+                                "HLAminstarf64" => Some(DecoderImplementation::HLAminstarf64),
+                                "HLAminstarf32" => Some(DecoderImplementation::HLAminstarf32),
+                                "HLAminstari8" => Some(DecoderImplementation::HLAminstari8),
+                                "HLAminstari8PartialHardLimit" => Some(DecoderImplementation::HLAminstari8PartialHardLimit),
+                                _ => None,
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    
+                    // Only update decoder_types if valid decoder types were specified
+                    if !specified_decoders.is_empty() {
+                        decoder_types = specified_decoders;
+                    }
                 }
             }
         }

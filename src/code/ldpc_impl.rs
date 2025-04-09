@@ -1,14 +1,11 @@
 use ldpc_toolbox::codes::ccsds::{AR4JACode, AR4JARate, AR4JAInfoSize};
 use ldpc_toolbox::encoder::Encoder;
-use ldpc_toolbox::decoder::arithmetic::{DecoderArithmetic};
-use ldpc_toolbox::decoder::horizontal_layered::Decoder;
 use ldpc_toolbox::gf2::GF2;
 use ldpc_toolbox::decoder::DecoderOutput;
 use ndarray::Array1;
 use num_traits::One;
 use crate::code::AdditiveCode;
 use crate::types::CodeInitParams;
-use ldpc_toolbox::decoder::factory;
 use ldpc_toolbox::decoder::factory::{DecoderFactory, DecoderImplementation};
 use ldpc_toolbox::decoder::factory::DecoderImplementation::Aminstarf32;
 

@@ -404,24 +404,26 @@ pub fn run_multiple_benchmarks<F: PrimeField<BigInt = BigInt<4>> + Debug>(
     );
     
     pb.set_message(format!(
-        "Benchmarking {} (c={}, rate={:?}, info_size={:?})", 
+        "Benchmarking {} (c={}, rate={:?}, info_size={:?}, decoder={:?})", 
         params.implementation,
         params.c_value,
         params.ldpc_rate,
-        params.ldpc_info_size
+        params.ldpc_info_size,
+        params.decoder_type
     ));
 
     let mut results = Vec::with_capacity(num_runs);
     
     for i in 0..num_runs {
         pb.set_message(format!(
-            "Run {}/{} - {} (c={}, rate={:?}, info_size={:?})", 
+            "Run {}/{} - {} (c={}, rate={:?}, info_size={:?}, decoder={:?})", 
             i + 1, 
             num_runs,
             params.implementation,
             params.c_value,
             params.ldpc_rate,
-            params.ldpc_info_size
+            params.ldpc_info_size,
+            params.decoder_type
         ));
         
         let run_progress = multi_progress.add(ProgressBar::new(4));
@@ -440,12 +442,13 @@ pub fn run_multiple_benchmarks<F: PrimeField<BigInt = BigInt<4>> + Debug>(
     }
     
     pb.finish_with_message(format!(
-        "Completed {} runs for {} (c={}, rate={:?}, info_size={:?})",
+        "Completed {} runs for {} (c={}, rate={:?}, info_size={:?}, decoder={:?})",
         num_runs,
         params.implementation,
         params.c_value,
         params.ldpc_rate,
-        params.ldpc_info_size
+        params.ldpc_info_size,
+        params.decoder_type
     ));
     
     results
@@ -476,7 +479,7 @@ pub fn generate_benchmark_params(
                                 ldpc_rate: rate,
                                 ldpc_info_size: info_size,
                                 max_iterations: 500,  // Default
-                                llr_bits: 1.5_f64.to_bits(), // Default LLR value stored as bits
+                                llr_bits: 100_f64.to_bits(), // Default LLR value stored as bits
                                 implementation,
                             });
                         }
@@ -598,15 +601,16 @@ pub fn save_benchmark_results_to_csv(summary: &BenchmarkSummary, file_path: &str
         let mut file = File::create(path)?;
         
         // Write header
-        writeln!(file, "Implementation,C,InfoSize,Rate,Phase,Avg_ms,Min_ms,Max_ms,Median_ms,StdDev_ms,SuccessRate")?;
+        writeln!(file, "Implementation,C,InfoSize,Rate,Decoder,Phase,Avg_ms,Min_ms,Max_ms,Median_ms,StdDev_ms,SuccessRate")?;
         
         // Write total stats
         for (params, stats) in &summary.total_stats {
-            writeln!(file, "{},{},{:?},{:?},Total,{},{},{},{},{},{}",
+            writeln!(file, "{},{},{:?},{:?},{:?},Total,{},{},{},{},{},{}",
                 params.implementation,
                 params.c_value,
                 params.ldpc_info_size,
                 params.ldpc_rate,
+                params.decoder_type,
                 stats.avg.as_millis(),
                 stats.min.as_millis(),
                 stats.max.as_millis(),
@@ -618,11 +622,12 @@ pub fn save_benchmark_results_to_csv(summary: &BenchmarkSummary, file_path: &str
         
         // Write setup stats
         for (params, stats) in &summary.setup_stats {
-            writeln!(file, "{},{},{:?},{:?},Setup,{},{},{},{},{},{}",
+            writeln!(file, "{},{},{:?},{:?},{:?},Setup,{},{},{},{},{},{}",
                 params.implementation,
                 params.c_value,
                 params.ldpc_info_size,
                 params.ldpc_rate,
+                params.decoder_type,
                 stats.avg.as_millis(),
                 stats.min.as_millis(),
                 stats.max.as_millis(),
@@ -634,11 +639,12 @@ pub fn save_benchmark_results_to_csv(summary: &BenchmarkSummary, file_path: &str
         
         // Write deal stats
         for (params, stats) in &summary.deal_stats {
-            writeln!(file, "{},{},{:?},{:?},Deal,{},{},{},{},{},{}",
+            writeln!(file, "{},{},{:?},{:?},{:?},Deal,{},{},{},{},{},{}",
                 params.implementation,
                 params.c_value,
                 params.ldpc_info_size,
                 params.ldpc_rate,
+                params.decoder_type,
                 stats.avg.as_millis(),
                 stats.min.as_millis(),
                 stats.max.as_millis(),
@@ -650,11 +656,12 @@ pub fn save_benchmark_results_to_csv(summary: &BenchmarkSummary, file_path: &str
         
         // Write reconstruct stats
         for (params, stats) in &summary.reconstruct_stats {
-            writeln!(file, "{},{},{:?},{:?},Reconstruct,{},{},{},{},{},{}",
+            writeln!(file, "{},{},{:?},{:?},{:?},Reconstruct,{},{},{},{},{},{}",
                 params.implementation,
                 params.c_value,
                 params.ldpc_info_size,
                 params.ldpc_rate,
+                params.decoder_type,
                 stats.avg.as_millis(),
                 stats.min.as_millis(),
                 stats.max.as_millis(),
@@ -671,17 +678,18 @@ pub fn save_benchmark_results_to_csv(summary: &BenchmarkSummary, file_path: &str
         let mut file = File::create(path)?;
         
         // Write header
-        writeln!(file, "Implementation,C,InfoSize,Rate,Operation,Phase,Avg_ms,Min_ms,Max_ms,Percentage")?;
+        writeln!(file, "Implementation,C,InfoSize,Rate,Decoder,Operation,Phase,Avg_ms,Min_ms,Max_ms,Percentage")?;
         
         // Write deal phase stats
         for (params, stats) in &summary.deal_stats {
             if let Some(phase_metrics) = &stats.phase_metrics {
                 for (name, phase_stat) in phase_metrics {
-                    writeln!(file, "{},{},{:?},{:?},Deal,\"{}\",{},{},{},{}",
+                    writeln!(file, "{},{},{:?},{:?},{:?},Deal,\"{}\",{},{},{},{}",
                         params.implementation,
                         params.c_value,
                         params.ldpc_info_size,
                         params.ldpc_rate,
+                        params.decoder_type,
                         name,
                         phase_stat.avg_duration.as_micros() as f64 / 1000.0,
                         phase_stat.min_duration.as_micros() as f64 / 1000.0,
@@ -696,11 +704,12 @@ pub fn save_benchmark_results_to_csv(summary: &BenchmarkSummary, file_path: &str
         for (params, stats) in &summary.reconstruct_stats {
             if let Some(phase_metrics) = &stats.phase_metrics {
                 for (name, phase_stat) in phase_metrics {
-                    writeln!(file, "{},{},{:?},{:?},Reconstruct,\"{}\",{},{},{},{}",
+                    writeln!(file, "{},{},{:?},{:?},{:?},Reconstruct,\"{}\",{},{},{},{}",
                         params.implementation,
                         params.c_value,
                         params.ldpc_info_size,
                         params.ldpc_rate,
+                        params.decoder_type,
                         name,
                         phase_stat.avg_duration.as_micros() as f64 / 1000.0,
                         phase_stat.min_duration.as_micros() as f64 / 1000.0,
@@ -721,17 +730,18 @@ pub fn print_benchmark_results(summary: &BenchmarkSummary, show_detail: bool) {
     println!("\n{:-^80}", " BENCHMARK RESULTS SUMMARY ");
     
     println!("\n{:-^80}", " TOTAL EXECUTION TIME ");
-    println!("{:<30} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12} | {:<8}", 
+    println!("{:<40} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12} | {:<8}", 
         "Parameters", "Avg", "Min", "Max", "Median", "StdDev", "Success");
-    println!("{:-^90}", "");
+    println!("{:-^110}", "");
     
     for (params, stats) in &summary.total_stats {
-        println!("{:<30} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12} | {:<8}", 
-            format!("{}:c{}:{:?}:{:?}", 
+        println!("{:<40} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12} | {:<8}", 
+            format!("{}:c{}:{:?}:{:?}:{:?}", 
                 params.implementation, 
                 params.c_value, 
                 params.ldpc_info_size, 
-                params.ldpc_rate),
+                params.ldpc_rate,
+                params.decoder_type),
             format_duration_ms(stats.avg),
             format_duration_ms(stats.min),
             format_duration_ms(stats.max),
@@ -743,17 +753,18 @@ pub fn print_benchmark_results(summary: &BenchmarkSummary, show_detail: bool) {
     if show_detail {
         // Setup time details
         println!("\n{:-^80}", " SETUP TIME ");
-        println!("{:<30} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
+        println!("{:<40} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
             "Parameters", "Avg", "Min", "Max", "Median", "StdDev");
-        println!("{:-^90}", "");
+        println!("{:-^100}", "");
         
         for (params, stats) in &summary.setup_stats {
-            println!("{:<30} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
-                format!("{}:c{}:{:?}:{:?}", 
+            println!("{:<40} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
+                format!("{}:c{}:{:?}:{:?}:{:?}", 
                     params.implementation, 
                     params.c_value, 
                     params.ldpc_info_size, 
-                    params.ldpc_rate),
+                    params.ldpc_rate,
+                    params.decoder_type),
                 format_duration_ms(stats.avg),
                 format_duration_ms(stats.min),
                 format_duration_ms(stats.max),
@@ -763,17 +774,18 @@ pub fn print_benchmark_results(summary: &BenchmarkSummary, show_detail: bool) {
         
         // Deal time details
         println!("\n{:-^80}", " DEAL TIME ");
-        println!("{:<30} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
+        println!("{:<40} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
             "Parameters", "Avg", "Min", "Max", "Median", "StdDev");
-        println!("{:-^90}", "");
+        println!("{:-^100}", "");
         
         for (params, stats) in &summary.deal_stats {
-            println!("{:<30} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
-                format!("{}:c{}:{:?}:{:?}", 
+            println!("{:<40} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
+                format!("{}:c{}:{:?}:{:?}:{:?}", 
                     params.implementation, 
                     params.c_value, 
                     params.ldpc_info_size, 
-                    params.ldpc_rate),
+                    params.ldpc_rate,
+                    params.decoder_type),
                 format_duration_ms(stats.avg),
                 format_duration_ms(stats.min),
                 format_duration_ms(stats.max),
@@ -805,17 +817,18 @@ pub fn print_benchmark_results(summary: &BenchmarkSummary, show_detail: bool) {
         
         // Reconstruct time details
         println!("\n{:-^80}", " RECONSTRUCT TIME ");
-        println!("{:<30} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
+        println!("{:<40} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
             "Parameters", "Avg", "Min", "Max", "Median", "StdDev");
-        println!("{:-^90}", "");
+        println!("{:-^100}", "");
         
         for (params, stats) in &summary.reconstruct_stats {
-            println!("{:<30} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
-                format!("{}:c{}:{:?}:{:?}", 
+            println!("{:<40} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}", 
+                format!("{}:c{}:{:?}:{:?}:{:?}", 
                     params.implementation, 
                     params.c_value, 
                     params.ldpc_info_size, 
-                    params.ldpc_rate),
+                    params.ldpc_rate,
+                    params.decoder_type),
                 format_duration_ms(stats.avg),
                 format_duration_ms(stats.min),
                 format_duration_ms(stats.max),
@@ -917,12 +930,20 @@ pub fn run_comprehensive_benchmark<F: PrimeField<BigInt = BigInt<4>> + Debug>(
                 .collect::<Vec<String>>()
                 .join("_");
                 
-            format!("benchmark_{}_c{}_{}_{}_{}",
+            // Include decoder type in filename if only one is used
+            let decoder_str = if decoder_types.len() == 1 {
+                format!("_{:?}", decoder_types[0])
+            } else {
+                String::from("_multi_decoder")
+            };
+                
+            format!("benchmark_{}_c{}_{}_{}_{}{}",
                 timestamp,
                 c_values_str,
                 implementation_str,
                 rates_str,
-                info_sizes_str)
+                info_sizes_str,
+                decoder_str)
         } else {
             file_path.to_string()
         };
