@@ -128,7 +128,7 @@ Tests verify:
 
 ### Core Functionality
 - **Secret Sharing**: Split secrets into shares and reconstruct them using LDPC codes
-- **Error Correction**: Reconstruct secrets even with missing/erased shares
+- **Error Correction**: Reconstruct secrets with missing/erased shares
 - **BLS12-381**: Uses cryptographic prime field elements for security
 
 ### LDPC Configurations
@@ -177,11 +177,6 @@ src/
     └── results/      # Results display components
 ```
 
-## Output Files
-
-Benchmark results are saved as CSV files:
-- `*_summary.csv`: Aggregated statistics per configuration
-- `*_phases.csv`: Detailed phase-level timing data
 
 ## Dependencies
 
