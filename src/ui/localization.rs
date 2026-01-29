@@ -175,10 +175,10 @@ impl Default for Localization {
             "About Schema Code Benchmarking", 
             "Про Schema Code Benchmarking");
         add_translation(&mut translations, "about_description", 
-            "This program is designed for benchmarking various secret sharing scheme implementations using error correction codes.", 
-            "Ця програма призначена для бенчмаркінгу різних реалізацій секретного розподілу з використанням кодів корекції помилок.");
+            "Rust implementation of an Additive-Only Secret Sharing (AOS) using CCSDS AR4JA LDPC codes; includes sequential and parallel implementations and a GUI for benchmarking and visualization.", 
+            "Реалізація Additive-Only Secret Sharing (AOS) на Rust з LDPC-кодами CCSDS AR4JA; містить послідовну й паралельну реалізації та GUI для бенчмаркінгу й візуалізації.");
         add_translation(&mut translations, "user_instructions", 
-            "User Instructions", 
+            "User instructions", 
             "Інструкція користувача");
         add_translation(&mut translations, "instruction_1", 
             "1. Configure benchmark parameters on the \"Configuration\" tab.", 
@@ -190,14 +190,14 @@ impl Default for Localization {
             "3. After completion, go to the \"Results\" tab to view results.", 
             "3. Після завершення, перейдіть на вкладку \"Результати\" для перегляду результатів.");
         add_translation(&mut translations, "instruction_4", 
-            "4. You can save results to CSV files for further analysis.", 
-            "4. Ви можете зберегти результати в CSV файлах для подальшого аналізу.");
+            "4. You can save results to JSON files for further analysis.", 
+            "4. Ви можете зберегти результати в JSON файлах для подальшого аналізу.");
         add_translation(&mut translations, "benchmark_params_heading", 
-            "Benchmark Parameters", 
-            "Параметри бенчмарку");
+            "Benchmark options", 
+            "Опції бенчмарку");
         add_translation(&mut translations, "param_c_desc", 
-            "C value: determines the number of random coefficients.", 
-            "C значення: визначає кількість випадкових коефіцієнтів.");
+            "C value: determines the maximum size of random coefficients.",
+            "C значення: визначає максимальний розмір випадкових коефіцієнтів.");
         add_translation(&mut translations, "param_runs_desc", 
             "Number of runs: how many times to run each configuration to collect statistics.", 
             "Кількість повторень: скільки разів запускати кожну конфігурацію для збору статистики.");
