@@ -246,6 +246,9 @@ impl Default for Localization {
         add_translation(&mut translations, "tab_phases", 
             "Execution Phases", 
             "Фази виконання");
+        add_translation(&mut translations, "import_results", 
+            "Import Results", 
+            "Імпортувати результати");
 
         // Summary tab
         add_translation(&mut translations, "total_execution_time", 
