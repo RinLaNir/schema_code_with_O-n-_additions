@@ -246,9 +246,21 @@ impl Default for Localization {
         add_translation(&mut translations, "tab_phases", 
             "Execution Phases", 
             "Фази виконання");
+        add_translation(&mut translations, "tab_visualization", 
+            "Visualization", 
+            "Візуалізація");
+        add_translation(&mut translations, "tab_acceleration", 
+            "Acceleration", 
+            "Прискорення");
         add_translation(&mut translations, "import_results", 
             "Import Results", 
             "Імпортувати результати");
+        add_translation(&mut translations, "import_success", 
+            "Results imported successfully", 
+            "Результати успішно імпортовано");
+        add_translation(&mut translations, "import_error", 
+            "Error importing results", 
+            "Помилка імпорту результатів");
 
         // Summary tab
         add_translation(&mut translations, "total_execution_time", 
@@ -287,6 +299,9 @@ impl Default for Localization {
         add_translation(&mut translations, "col_throughput", 
             "Throughput", 
             "Пропускна зд.");
+        add_translation(&mut translations, "reset_sort", 
+            "Reset sort", 
+            "Скинути сортування");
             
         // Decoding stats
         add_translation(&mut translations, "decoding_stats_title", 
@@ -322,6 +337,15 @@ impl Default for Localization {
         add_translation(&mut translations, "chart_title", 
             "Average Execution Time Chart", 
             "Графік середнього часу виконання");
+        add_translation(&mut translations, "chart_type_label", 
+            "Chart type:", 
+            "Тип графіку:");
+        add_translation(&mut translations, "chart_type_bar", 
+            "Bar Chart", 
+            "Стовпчикова діаграма");
+        add_translation(&mut translations, "chart_type_line", 
+            "Line Chart", 
+            "Лінійний графік");
         add_translation(&mut translations, "axis_time_ms", 
             "Time (ms)", 
             "Час (мс)");
@@ -358,6 +382,24 @@ impl Default for Localization {
         add_translation(&mut translations, "speedup_percent_faster", 
             "% faster", 
             "% швидше");
+        add_translation(&mut translations, "acceleration_no_comparison", 
+            "No comparison data available. Run benchmark with both Sequential and Parallel implementations.", 
+            "Немає даних для порівняння. Запустіть бенчмарк з обома імплементаціями: Послідовна та Паралельна.");
+        add_translation(&mut translations, "config_filter", 
+            "Configuration filter:", 
+            "Фільтр конфігурації:");
+        add_translation(&mut translations, "filter_all", 
+            "All", 
+            "Усі");
+        add_translation(&mut translations, "no_data_selected", 
+            "No data for selected filter", 
+            "Немає даних для обраного фільтра");
+        add_translation(&mut translations, "col_config", 
+            "Configuration", 
+            "Конфігурація");
+        add_translation(&mut translations, "col_percent_faster", 
+            "% Faster", 
+            "% Швидше");
 
         // Details tab
         add_translation(&mut translations, "setup_time_title", 

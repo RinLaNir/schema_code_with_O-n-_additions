@@ -73,10 +73,10 @@ impl Header {
         let mut selected_language = None;
         
         ui.horizontal(|ui| {
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(ui.visuals().extreme_bg_color)
-                .rounding(5.0)
-                .inner_margin(egui::style::Margin::same(4.0))
+                .corner_radius(5.0)
+                .inner_margin(4)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button(RichText::new("EN").text_style(egui::TextStyle::Body))

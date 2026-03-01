@@ -2,30 +2,29 @@
 name = "schema_code"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "LDPC-based Additive Only Secret Sharing (AOS) scheme with sequential and parallel implementations"
 
 [dependencies]
-rand = "0.8.5"
-ldpc-toolbox = "0.6.1"
-ndarray = "0.15.6"
+rand = "0.10.0"
+ldpc-toolbox = "0.12.0"
+ndarray = "0.17.2"
 num-traits = "0.2.19"
 # ldpc = "0.7.0"
 sparse-bin-mat = "0.7.0"
 ark-ff = "0.5.0"
 ark-bls12-381 = "0.5.0"
-ark-std = "0.5.0"
-indicatif = "0.17.8"
-chrono = "0.4.34"
+ark-std = { version = "0.5.0", features = ["getrandom"] }
+indicatif = "0.18.4"
+chrono = "0.4.44"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 humantime = "2.1.0"
 rayon = "1.8.1"
 # UI залежності
-eframe = { version = "0.25.0", features = ["persistence"] }
-egui_plot = "0.25.0"  # для графіків
-egui_extras = "0.25.0"  # для таблиць з гнучкими колонками
-rfd = "0.13.0"  # для діалогів відкриття/збереження файлів
+eframe = { version = "0.33.3", features = ["persistence"] }
+egui_plot = "0.34.1"
+egui_extras = "0.33.3"
+rfd = "0.17.2"
 lazy_static = "1.5.0"
 
 [dependencies.winapi]

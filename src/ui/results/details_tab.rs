@@ -39,7 +39,7 @@ fn draw_duration_with_bar(ui: &mut Ui, duration: Duration, min_duration: Duratio
             painter.rect_filled(bar_rect, corner_radius, bar_color);
         }
         
-        painter.rect_stroke(rect, corner_radius, constants::data_bar_stroke(ui));
+        painter.rect_stroke(rect, corner_radius, constants::data_bar_stroke(ui), egui::StrokeKind::Outside);
         
         let text_pos = rect.right_center() - egui::vec2(constants::DATA_BAR_TEXT_PADDING, 0.0);
         let font_id = egui::FontId::new(

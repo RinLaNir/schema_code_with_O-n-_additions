@@ -4,9 +4,8 @@
 //! It provides the `setup()` function and the `ExecutionStrategy` trait that defines
 //! how different phases of deal/reconstruct operations are executed.
 
-use rand::Rng;
+use ark_std::rand::Rng;
 use ark_ff::{PrimeField, BigInt};
-use ark_std::rand::thread_rng;
 use ldpc_toolbox::gf2::GF2;
 use ndarray::Array2;
 use num_traits::Zero;
@@ -65,7 +64,7 @@ pub fn setup<F: PrimeField>(params: CodeInitParams, c: u32) -> SecretParams<Ldpc
         input_length, F::MODULUS_BIT_SIZE
     );
     
-    let mut rng = thread_rng();
+    let mut rng = ark_std::rand::thread_rng();
     
     log_verbose!("Generating {} random coefficients...", output_length);
     let progress_bar = create_progress_bar(output_length as u64, progress_templates::COEFFICIENTS);

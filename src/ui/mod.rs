@@ -27,6 +27,6 @@ pub fn launch_ui() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Schema Code Benchmark",
         options,
-        Box::new(|cc| Box::new(BenchmarkApp::new(cc)))
+        Box::new(|cc| Ok(Box::new(BenchmarkApp::new(cc))))
     )
 }

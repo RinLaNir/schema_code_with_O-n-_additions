@@ -4,7 +4,6 @@
 //! larger datasets utilizing all available CPU cores.
 
 use ark_ff::{PrimeField, BigInteger, BigInt};
-use ark_std::rand::thread_rng;
 use ldpc_toolbox::gf2::GF2;
 use ndarray::{Array1, Array2};
 use num_traits::{One, Zero};
@@ -28,7 +27,7 @@ impl ExecutionStrategy for ParallelStrategy {
         (0..len)
             .into_par_iter()
             .map(|_| {
-                let mut thread_rng = thread_rng();
+                let mut thread_rng = ark_std::rand::thread_rng();
                 F::rand(&mut thread_rng)
             })
             .collect()

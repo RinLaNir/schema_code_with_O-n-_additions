@@ -80,9 +80,9 @@ impl ConfigureTab {
         ScrollArea::vertical().show(ui, |ui| {
             egui::Frame::group(ui.style())
                 .stroke(egui::Stroke::new(1.0, Color32::from_rgb(150, 150, 180)))
-                .rounding(8.0)
-                .inner_margin(egui::style::Margin::same(12.0))
-                .outer_margin(egui::style::Margin::symmetric(0.0, 4.0))
+                .corner_radius(8.0)
+                .inner_margin(12)
+                .outer_margin(egui::Margin::symmetric(0, 4))
                 .show(ui, |ui| {
                     ui.heading(RichText::new(self.localization.get("basic_params")).color(Color32::from_rgb(80, 150, 230)));
                     ui.add_space(5.0);
@@ -250,9 +250,9 @@ impl ConfigureTab {
             
             egui::Frame::group(ui.style())
                 .stroke(egui::Stroke::new(1.0, Color32::from_rgb(150, 150, 180)))
-                .rounding(8.0)
-                .inner_margin(egui::style::Margin::same(12.0))
-                .outer_margin(egui::style::Margin::symmetric(0.0, 4.0))
+                .corner_radius(8.0)
+                .inner_margin(12)
+                .outer_margin(egui::Margin::symmetric(0, 4))
                 .show(ui, |ui| {
                     ui.heading(RichText::new(self.localization.get("code_params")).color(Color32::from_rgb(80, 150, 230)));
                     ui.add_space(5.0);
@@ -323,9 +323,9 @@ impl ConfigureTab {
             
             egui::Frame::group(ui.style())
                 .stroke(egui::Stroke::new(1.0, Color32::from_rgb(150, 150, 180)))
-                .rounding(8.0)
-                .inner_margin(egui::style::Margin::same(12.0))
-                .outer_margin(egui::style::Margin::symmetric(0.0, 4.0))
+                .corner_radius(8.0)
+                .inner_margin(12)
+                .outer_margin(egui::Margin::symmetric(0, 4))
                 .show(ui, |ui| {
                     let available_width = ui.available_width();
                     ui.set_min_width(f32::max(500.0, available_width));
@@ -356,7 +356,7 @@ impl ConfigureTab {
                             .color(Color32::WHITE))
                         .fill(Color32::from_rgb(220, 80, 80))
                         .min_size(egui::vec2(280.0, 40.0))
-                        .rounding(8.0);
+                        .corner_radius(8.0);
                         
                     if ui.add(stop_button).clicked() {
                         action = Some(ConfigureAction::StopBenchmark);
@@ -368,7 +368,7 @@ impl ConfigureTab {
                             .color(Color32::WHITE))
                         .fill(Color32::from_rgb(50, 150, 230))
                         .min_size(egui::vec2(280.0, 40.0))
-                        .rounding(8.0);
+                        .corner_radius(8.0);
                         
                     if ui.add(run_button).clicked() {
                         self.update_config_from_ui_values();
@@ -394,10 +394,10 @@ impl ConfigureTab {
                 if let Some(cmd) = &self.command_line_display {
                     ui.add_space(8.0);
                     
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .fill(Color32::from_rgb(40, 40, 50))
-                        .rounding(4.0)
-                        .inner_margin(egui::style::Margin::same(10.0))
+                        .corner_radius(4.0)
+                        .inner_margin(10)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(self.localization.get("command_line_label"))
@@ -407,7 +407,7 @@ impl ConfigureTab {
                                 
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     if ui.small_button("📋").on_hover_text(self.localization.get("copy_command")).clicked() {
-                                        ui.output_mut(|o| o.copied_text = cmd.clone());
+                                        ui.ctx().copy_text(cmd.clone());
                                     }
                                 });
                             });
@@ -420,7 +420,7 @@ impl ConfigureTab {
                                         .monospace()
                                         .size(12.0)
                                         .color(Color32::from_rgb(180, 220, 180))
-                                ).wrap(true));
+                                ).wrap());
                             });
                         });
                 }

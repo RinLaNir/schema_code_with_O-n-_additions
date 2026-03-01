@@ -178,7 +178,7 @@ impl eframe::App for BenchmarkApp {
             }
         }
 
-        let screen_width = ctx.screen_rect().width();
+        let screen_width = ctx.viewport_rect().width();
         let use_sidebar = screen_width >= SIDEBAR_BREAKPOINT;
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -223,7 +223,7 @@ impl eframe::App for BenchmarkApp {
                 egui::vec2(content_width, available_rect.height())
             );
             
-            ui.allocate_ui_at_rect(content_rect, |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
                 self.show_tab_content(ui);
             });
         });

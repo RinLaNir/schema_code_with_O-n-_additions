@@ -8,7 +8,6 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle, ProgressDrawTarget};
 use ldpc_toolbox::codes::ccsds::{AR4JAInfoSize, AR4JARate};
 use ldpc_toolbox::decoder::factory::DecoderImplementation;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
 use std::time::{Duration, Instant};
@@ -363,7 +362,7 @@ pub struct BenchmarkSummary {
 }
 
 fn remove_random_shares(shares: &mut Vec<Share>, num_to_remove: isize) {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     shares.shuffle(&mut rng);
     
     let count_to_remove = if num_to_remove < 0 {

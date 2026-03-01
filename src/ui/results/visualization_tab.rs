@@ -103,8 +103,8 @@ impl VisualizationTab {
             
             let plot = plot::Plot::new("bar_chart_plot")
                 .height(plot_height)
-                .legend(plot::Legend::default())
-                .y_axis_width(4)
+                .legend(plot::Legend::default().position(plot::Corner::LeftTop))
+                .y_axis_min_width(4.0)
                 .y_axis_label(RichText::new(self.localization.get("axis_time_ms")).size(small_size(ui)))
                 .x_axis_label(RichText::new(self.localization.get("axis_parameters")).size(small_size(ui)))
                 .allow_zoom(true)
@@ -137,7 +137,7 @@ impl VisualizationTab {
                 for (params, stats) in entries {
                     let avg_ms = stats.avg.as_millis() as f64;
                     
-                    let param_label = format!("{:?}_{:?}_{:?}", 
+                    let param_label = format!("{:?}\n{:?}\n{:?}", 
                         params.ldpc_rate, 
                         params.ldpc_info_size, 
                         params.decoder_type);
@@ -147,8 +147,12 @@ impl VisualizationTab {
                         Implementation::Sequential => &impl_sequential,
                         Implementation::Parallel => &impl_parallel,
                     };
+                    let tooltip_label = format!("{:?}_{:?}_{:?}", 
+                        params.ldpc_rate, 
+                        params.ldpc_info_size, 
+                        params.decoder_type);
                     let bar_value = plot::Bar::new(bar_index, avg_ms)
-                        .name(format!("{} ({}): {:.2} ms", impl_name, param_label, avg_ms))
+                        .name(format!("{} ({}): {:.2} ms", impl_name, tooltip_label, avg_ms))
                         .width(0.7);
                     
                     match params.implementation {
@@ -167,25 +171,24 @@ impl VisualizationTab {
                     } else {
                         format!("{:.0} ms", value)
                     };
-                    plot_ui.hline(plot::HLine::new(value).style(plot::LineStyle::dashed_dense()));
+                    plot_ui.hline(plot::HLine::new("", value).style(plot::LineStyle::dashed_dense()));
                     
                     plot_ui.text(plot::Text::new(
+                        "",
                         plot::PlotPoint::new(-0.3, value),
                         RichText::new(label).size(10.0)
                     ));
                 }
                 
                 if !seq_values.is_empty() {
-                    let seq_chart = plot::BarChart::new(seq_values)
-                        .name(&legend_sequential)
+                    let seq_chart = plot::BarChart::new(&legend_sequential, seq_values)
                         .color(constants::sequential_color());
                     
                     plot_ui.bar_chart(seq_chart);
                 }
                 
                 if !par_values.is_empty() {
-                    let par_chart = plot::BarChart::new(par_values)
-                        .name(&legend_parallel) 
+                    let par_chart = plot::BarChart::new(&legend_parallel, par_values)
                         .color(constants::parallel_color());
                     
                     plot_ui.bar_chart(par_chart);
@@ -193,6 +196,7 @@ impl VisualizationTab {
                 
                 plot_ui.text(
                     plot::Text::new(
+                        "",
                         plot::PlotPoint::new(bar_index as f64 / 2.0, y_max * 1.1),
                         RichText::new(&chart_comparison_title).size(title_size).strong()
                     )
@@ -202,6 +206,7 @@ impl VisualizationTab {
                     for (x, label) in param_labels {
                         plot_ui.text(
                             plot::Text::new(
+                                "",
                                 plot::PlotPoint::new(x, -y_max * 0.05), 
                                 RichText::new(&label).size(label_size)
                             )
@@ -226,8 +231,8 @@ impl VisualizationTab {
             
             let plot = plot::Plot::new("line_chart_plot")
                 .height(plot_height)
-                .legend(plot::Legend::default())
-                .y_axis_width(4)
+                .legend(plot::Legend::default().position(plot::Corner::LeftTop))
+                .y_axis_min_width(4.0)
                 .y_axis_label(RichText::new(self.localization.get("axis_time_ms")).size(small_size(ui)))
                 .x_axis_label(RichText::new(self.localization.get("axis_parameters")).size(small_size(ui)))
                 .allow_zoom(true)
@@ -272,7 +277,7 @@ impl VisualizationTab {
                         let idx = config_index;
                         configs_seen.insert(config_key.clone(), idx);
                         
-                        let param_label = format!("{:?}_{:?}_{:?}", 
+                        let param_label = format!("{:?}\n{:?}\n{:?}", 
                             params.ldpc_rate, 
                             params.ldpc_info_size, 
                             params.decoder_type);
@@ -299,37 +304,34 @@ impl VisualizationTab {
                     } else {
                         format!("{:.0} ms", value)
                     };
-                    plot_ui.hline(plot::HLine::new(value).style(plot::LineStyle::dashed_dense()));
+                    plot_ui.hline(plot::HLine::new("", value).style(plot::LineStyle::dashed_dense()));
                     
                     plot_ui.text(plot::Text::new(
+                        "",
                         plot::PlotPoint::new(-0.3, value),
                         RichText::new(label).size(10.0)
                     ));
                 }
                 
                 if !seq_points.is_empty() {
-                    let seq_line = plot::Line::new(plot::PlotPoints::from(seq_points.clone()))
-                        .name(&legend_sequential)
+                    let seq_line = plot::Line::new(&legend_sequential, plot::PlotPoints::from(seq_points.clone()))
                         .color(constants::sequential_color())
                         .width(2.5);
                     plot_ui.line(seq_line);
                     
-                    let seq_markers = plot::Points::new(plot::PlotPoints::from(seq_points))
-                        .name(&legend_sequential)
+                    let seq_markers = plot::Points::new("", plot::PlotPoints::from(seq_points))
                         .color(constants::sequential_color())
                         .radius(5.0);
                     plot_ui.points(seq_markers);
                 }
                 
                 if !par_points.is_empty() {
-                    let par_line = plot::Line::new(plot::PlotPoints::from(par_points.clone()))
-                        .name(&legend_parallel)
+                    let par_line = plot::Line::new(&legend_parallel, plot::PlotPoints::from(par_points.clone()))
                         .color(constants::parallel_color())
                         .width(2.5);
                     plot_ui.line(par_line);
                     
-                    let par_markers = plot::Points::new(plot::PlotPoints::from(par_points))
-                        .name(&legend_parallel)
+                    let par_markers = plot::Points::new("", plot::PlotPoints::from(par_points))
                         .color(constants::parallel_color())
                         .radius(5.0);
                     plot_ui.points(par_markers);
@@ -337,6 +339,7 @@ impl VisualizationTab {
                 
                 plot_ui.text(
                     plot::Text::new(
+                        "",
                         plot::PlotPoint::new(config_index as f64 / 2.0, y_max * 1.1),
                         RichText::new(&chart_comparison_title).size(title_size).strong()
                     )
@@ -346,6 +349,7 @@ impl VisualizationTab {
                     for (x, label) in param_labels {
                         plot_ui.text(
                             plot::Text::new(
+                                "",
                                 plot::PlotPoint::new(x, -y_max * 0.05), 
                                 RichText::new(&label).size(label_size)
                             )

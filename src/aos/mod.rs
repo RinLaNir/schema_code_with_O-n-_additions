@@ -4,7 +4,6 @@
 //! smaller datasets or environments without parallelization support.
 
 use ark_ff::{PrimeField, BigInteger, BigInt};
-use ark_std::rand::thread_rng;
 use ldpc_toolbox::gf2::GF2;
 use ndarray::{Array1, Array2};
 use num_traits::{One, Zero};
@@ -17,12 +16,11 @@ use crate::aos_core::{self, ExecutionStrategy};
 
 pub mod utils;
 
-/// Sequential execution strategy marker type.
 pub struct SequentialStrategy;
 
 impl ExecutionStrategy for SequentialStrategy {
     fn generate_random_vec<F: PrimeField>(len: usize) -> Vec<F> {
-        let mut rng = thread_rng();
+        let mut rng = ark_std::rand::thread_rng();
         (0..len).map(|_| F::rand(&mut rng)).collect()
     }
 
@@ -38,11 +36,9 @@ impl ExecutionStrategy for SequentialStrategy {
     ) -> Array2<GF2> {
         let mut message_matrix = Array2::<GF2>::from_elem((nrows, ncols), GF2::zero());
         
-        // Pre-allocate GF2 instances to avoid repeated allocation
         let gf2_zero = GF2::zero();
         let gf2_one = GF2::one();
 
-        // Use chunk processing to improve cache locality
         const CHUNK_SIZE: usize = 16;
         for chunk_start in (0..ncols).step_by(CHUNK_SIZE) {
             let chunk_end = std::cmp::min(chunk_start + CHUNK_SIZE, ncols);
@@ -51,12 +47,10 @@ impl ExecutionStrategy for SequentialStrategy {
                 let val_int = r_vec[i].into_bigint();
                 let bits = val_int.to_bits_le();
                 
-                // Direct assignment with optimized bounds checking
                 for (j, &b) in bits.iter().enumerate().take(nrows) {
                     message_matrix[(j, i)] = if b { gf2_one } else { gf2_zero };
                 }
                 
-                // Fill remaining bits with zero if necessary
                 for j in bits.len()..nrows {
                     message_matrix[(j, i)] = gf2_zero;
                 }
@@ -109,7 +103,6 @@ impl ExecutionStrategy for SequentialStrategy {
             
             let decode_result = code_impl.decode(&row_input, present_columns);
             
-            // Track iterations
             total_iterations += decode_result.iterations;
             if decode_result.iterations >= max_iter_limit {
                 max_iterations_hit += 1;
@@ -130,7 +123,6 @@ impl ExecutionStrategy for SequentialStrategy {
 
             progress_bar.inc(1);
 
-            // Update progress message periodically
             if last_update_time.elapsed() >= update_interval {
                 progress_bar.set_message(format!(
                     "success rate: {:.2}% ({} ok, {} failed)",

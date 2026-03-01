@@ -25,15 +25,15 @@ pub fn show_phase_pie_chart(ui: &mut Ui, phase_metrics: &HashMap<String, PhaseSt
     phases.sort_by(|(_, a), (_, b)| b.avg_percentage.partial_cmp(&a.avg_percentage).unwrap());
     
     let colors = [
-        Color32::from_rgb(235, 64, 52),
-        Color32::from_rgb(66, 135, 245),
-        Color32::from_rgb(252, 186, 3),
-        Color32::from_rgb(50, 168, 82),
-        Color32::from_rgb(142, 36, 170),
-        Color32::from_rgb(240, 128, 60),
-        Color32::from_rgb(66, 189, 168),
-        Color32::from_rgb(194, 24, 91),
-        Color32::from_rgb(97, 97, 97),
+        Color32::from_rgb(235, 64, 52),   // Red
+        Color32::from_rgb(66, 135, 245),  // Blue
+        Color32::from_rgb(252, 186, 3),   // Yellow
+        Color32::from_rgb(50, 168, 82),   // Green
+        Color32::from_rgb(142, 36, 170),  // Purple
+        Color32::from_rgb(240, 128, 60),  // Orange
+        Color32::from_rgb(66, 189, 168),  // Teal
+        Color32::from_rgb(194, 24, 91),   // Pink
+        Color32::from_rgb(97, 97, 97),    // Gray
     ];
     
     ui.horizontal_wrapped(|ui| {

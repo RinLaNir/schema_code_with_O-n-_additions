@@ -4,7 +4,6 @@ use chrono::Local;
 use ldpc_toolbox::codes::ccsds::{AR4JAInfoSize, AR4JARate};
 use ldpc_toolbox::decoder::factory::DecoderImplementation;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
 use std::env;
 use std::process;
 use std::time::Instant;
@@ -458,7 +457,7 @@ fn run_single_test() {
 
     
 fn remove_random_shares(shares: &mut Vec<Share>, num_to_remove: usize) {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     shares.shuffle(&mut rng);
     if num_to_remove <= shares.len() {
         shares.drain(0..num_to_remove);
