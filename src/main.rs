@@ -82,8 +82,12 @@ fn print_help() {
     println!("  --sizes=S1,S2,...   Comma-separated list of info sizes to test (K1024, etc.)");
     println!("  --decoders=D1,D2,...Comma-separated list of decoder types to test");
     println!("                      (Aminstarf32, Phif64, Tanhf32, etc. or 'all' for all types)");
+    println!("  --shares=N1,N2,...   Comma-separated list of shares_to_remove values");
+    println!("                      (positive = absolute count, negative = percentage)");
     println!("  --output            Save results to JSON file with auto-generated name");
     println!("  --output=FILE       Save results to JSON file (FILE.json)");
+    println!("  --no-cache          Disable setup caching (run setup per each iteration)");
+    println!("  --terminal-log      Print log messages to terminal (disabled by default)");
     println!("");
     println!("Example:");
     println!("  {} benchmark --runs=5 --warmup=1 --c=10,20 --detail --decoders=Aminstarf32,Phif64 --output", env::args().next().unwrap_or_else(|| String::from("schema_code")));
@@ -99,6 +103,7 @@ fn parse_benchmark_args(args: &[String]) -> (
     Vec<Implementation>,           // implementations
     usize,                         // runs_per_config
     usize,                         // warmup_runs
+    bool,                          // cache_setup
     bool,                          // show_detail
     Option<String>,                // output_file
     u128,                          // secret_value
@@ -107,7 +112,7 @@ fn parse_benchmark_args(args: &[String]) -> (
 ) {
     
     let mut c_values = vec![10, 20];
-    let shares_to_remove_values = vec![100];
+    let mut shares_to_remove_values: Vec<isize> = vec![100];
     
     let mut decoder_types = vec![
         DecoderImplementation::Phif64,
@@ -154,6 +159,7 @@ fn parse_benchmark_args(args: &[String]) -> (
     let mut warmup_runs = 1;
     let mut show_detail = false;
     let mut output_file = None;
+    let mut cache_setup = true;
     let mut secret_value: u128 = 42;
     let mut max_iterations: usize = 500;
     let mut llr_value: f64 = 10.0;
@@ -269,6 +275,20 @@ fn parse_benchmark_args(args: &[String]) -> (
                     ldpc_info_sizes = vec![AR4JAInfoSize::K1024];
                 }
             }
+        } else if arg.starts_with("--shares=") {
+            if let Some(values_str) = arg.strip_prefix("--shares=") {
+                let parsed: Vec<isize> = values_str
+                    .split(',')
+                    .filter_map(|s| s.trim().parse::<isize>().ok())
+                    .collect();
+                if !parsed.is_empty() {
+                    shares_to_remove_values = parsed;
+                }
+            }
+        } else if arg == "--terminal-log" {
+            crate::ui::logging::set_terminal_log(true);
+        } else if arg == "--no-cache" {
+            cache_setup = false;
         } else if arg.starts_with("--decoders=") {
             if let Some(values_str) = arg.strip_prefix("--decoders=") {
                 
@@ -339,6 +359,7 @@ fn parse_benchmark_args(args: &[String]) -> (
         implementations,
         runs_per_config,
         warmup_runs,
+        cache_setup,
         show_detail,
         output_file,
         secret_value,
@@ -358,6 +379,7 @@ fn run_benchmarks(args: &[String]) {
         implementations,
         runs_per_config,
         warmup_runs,
+        cache_setup,
         show_detail,
         output_file,
         secret_value,
@@ -374,6 +396,7 @@ fn run_benchmarks(args: &[String]) {
         &implementations,
         runs_per_config,
         warmup_runs,
+        cache_setup,
         show_detail,
         output_file.as_deref(),
         secret_value,

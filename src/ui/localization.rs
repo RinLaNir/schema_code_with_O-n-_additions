@@ -143,6 +143,9 @@ impl Default for Localization {
         add_translation(&mut translations, "verbose_logging", 
             "Verbose logging (detailed phase breakdown)", 
             "Детальне логування (розбивка по фазах)");
+        add_translation(&mut translations, "cache_setup", 
+            "Cache setup (reuse generator matrix across runs)", 
+            "Кешувати setup (повторно використовувати генераторну матрицю)");
         
         // Run button & command line
         add_translation(&mut translations, "run_benchmark", 

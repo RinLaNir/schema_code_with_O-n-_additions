@@ -335,6 +335,7 @@ impl ConfigureTab {
                     
                     ui.checkbox(&mut self.config.show_detail, self.localization.get("show_details"));
                     ui.checkbox(&mut self.config.verbose, self.localization.get("verbose_logging"));
+                    ui.checkbox(&mut self.config.cache_setup, self.localization.get("cache_setup"));
                     
                     ui.horizontal(|ui| {
                         ui.checkbox(&mut self.config.save_results, self.localization.get("save_json"));

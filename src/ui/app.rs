@@ -96,6 +96,7 @@ impl BenchmarkApp {
                 &config.ldpc_info_sizes,
                 &config.implementations,
                 config.runs_per_config,
+                config.cache_setup,
                 config.show_detail,
                 if config.save_results {
                     if config.output_filename.is_empty() {

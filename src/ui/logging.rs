@@ -112,6 +112,7 @@ lazy_static::lazy_static! {
 
 use std::sync::atomic::{AtomicBool, Ordering};
 static VERBOSE_MODE: AtomicBool = AtomicBool::new(false);
+static TERMINAL_LOG_MODE: AtomicBool = AtomicBool::new(false);
 
 pub fn set_verbose(verbose: bool) {
     VERBOSE_MODE.store(verbose, Ordering::SeqCst);
@@ -119,6 +120,14 @@ pub fn set_verbose(verbose: bool) {
 
 pub fn is_verbose() -> bool {
     VERBOSE_MODE.load(Ordering::SeqCst)
+}
+
+pub fn set_terminal_log(enabled: bool) {
+    TERMINAL_LOG_MODE.store(enabled, Ordering::SeqCst);
+}
+
+pub fn is_terminal_log() -> bool {
+    TERMINAL_LOG_MODE.load(Ordering::SeqCst)
 } 
 
 pub fn init_logger(max_messages: usize) -> Arc<Logger> {
@@ -158,6 +167,9 @@ pub fn get_logger() -> Arc<Logger> {
 macro_rules! log_info {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
+        if $crate::ui::logging::is_terminal_log() {
+            println!("[INFO] {}", message);
+        }
         $crate::ui::logging::get_logger().info(message);
     }}
 }
@@ -166,6 +178,9 @@ macro_rules! log_info {
 macro_rules! log_warning {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
+        if $crate::ui::logging::is_terminal_log() {
+            println!("[WARN] {}", message);
+        }
         $crate::ui::logging::get_logger().warning(message);
     }}
 }
@@ -174,6 +189,9 @@ macro_rules! log_warning {
 macro_rules! log_error {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
+        if $crate::ui::logging::is_terminal_log() {
+            eprintln!("[ERROR] {}", message);
+        }
         $crate::ui::logging::get_logger().error(message);
     }}
 }
@@ -182,6 +200,9 @@ macro_rules! log_error {
 macro_rules! log_success {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
+        if $crate::ui::logging::is_terminal_log() {
+            println!("[OK] {}", message);
+        }
         $crate::ui::logging::get_logger().success(message);
     }}
 }
@@ -190,6 +211,9 @@ macro_rules! log_success {
 macro_rules! log_progress {
     ($($arg:tt)*) => {{
         let message = format!($($arg)*);
+        if $crate::ui::logging::is_terminal_log() {
+            println!("[...] {}", message);
+        }
         $crate::ui::logging::get_logger().progress(message);
     }}
 }
@@ -199,6 +223,9 @@ macro_rules! log_verbose {
     ($($arg:tt)*) => {{
         if $crate::ui::logging::is_verbose() {
             let message = format!($($arg)*);
+            if $crate::ui::logging::is_terminal_log() {
+                println!("[VERBOSE] {}", message);
+            }
             $crate::ui::logging::get_logger().info(message);
         }
     }}

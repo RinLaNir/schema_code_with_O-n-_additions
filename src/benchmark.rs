@@ -1,6 +1,8 @@
 use crate::aos;
 use crate::aos_parallel;
-use crate::types::{CodeInitParams, Share, DealMetrics, ReconstructMetrics, DecodingStats, ThroughputMetrics, ParallelMetrics};
+use crate::aos_core;
+use crate::types::{CodeInitParams, Share, SecretParams, DealMetrics, ReconstructMetrics, DecodingStats, ThroughputMetrics, ParallelMetrics};
+use crate::code::ldpc_impl::LdpcCode;
 use crate::{log_info, log_success, log_error, log_warning, log_verbose};
 use ark_ff::{BigInt, PrimeField};
 use chrono::Local;
@@ -362,6 +364,7 @@ pub struct BenchmarkSummary {
 }
 
 fn remove_random_shares(shares: &mut Vec<Share>, num_to_remove: isize) {
+    let total_before = shares.len();
     let mut rng = rand::rng();
     shares.shuffle(&mut rng);
     
@@ -375,6 +378,13 @@ fn remove_random_shares(shares: &mut Vec<Share>, num_to_remove: isize) {
     
     if count_to_remove <= shares.len() {
         shares.drain(0..count_to_remove);
+    }
+    
+    let remaining = shares.len();
+    if num_to_remove < 0 {
+        log_info!("Removed {} shares ({}% of {}), remaining: {}", count_to_remove, -num_to_remove, total_before, remaining);
+    } else {
+        log_info!("Removed {} shares out of {}, remaining: {}", count_to_remove, total_before, remaining);
     }
 }
 
@@ -479,9 +489,96 @@ pub fn run_single_benchmark<F: PrimeField<BigInt = BigInt<4>> + Debug>(
     }
 }
 
+fn create_benchmark_setup<F: PrimeField>(params: &BenchmarkParams) -> SecretParams<LdpcCode, F> {
+    let code_params = CodeInitParams {
+        decoder_type: Some(params.decoder_type),
+        ldpc_rate: Some(params.ldpc_rate),
+        ldpc_info_size: Some(params.ldpc_info_size),
+        max_iterations: Some(params.max_iterations),
+        llr_value: Some(f64::from_bits(params.llr_bits)),
+    };
+    aos_core::setup(code_params, params.c_value as u32)
+}
+
+pub fn run_single_benchmark_cached<F: PrimeField<BigInt = BigInt<4>> + Debug>(
+    params: &BenchmarkParams,
+    pp: &SecretParams<LdpcCode, F>,
+    progress: Option<&ProgressBar>,
+) -> BenchmarkResult {
+    let secret = F::from(params.secret_value);
+
+    if let Some(pb) = progress {
+        pb.set_message("Dealing shares...");
+    }
+
+    let (deal_duration, reconstruct_duration, reconstructed_secret, deal_metrics, reconstruct_metrics) =
+        match params.implementation {
+            Implementation::Sequential => {
+                let deal_start = Instant::now();
+                let mut shares = aos::deal(pp, secret);
+                let deal_duration = deal_start.elapsed();
+                let deal_metrics = shares.metrics.clone();
+
+                if let Some(pb) = progress {
+                    pb.set_message("Removing shares...");
+                }
+                remove_random_shares(&mut shares.shares, params.shares_to_remove as isize);
+
+                if let Some(pb) = progress {
+                    pb.set_message("Reconstructing...");
+                }
+                let reconstruct_start = Instant::now();
+                let (reconstructed_secret, reconstruct_metrics) = aos::reconstruct(pp, &shares);
+                let reconstruct_duration = reconstruct_start.elapsed();
+
+                (deal_duration, reconstruct_duration, reconstructed_secret, deal_metrics, reconstruct_metrics)
+            },
+            Implementation::Parallel => {
+                let deal_start = Instant::now();
+                let mut shares = aos_parallel::deal(pp, secret);
+                let deal_duration = deal_start.elapsed();
+                let deal_metrics = shares.metrics.clone();
+
+                if let Some(pb) = progress {
+                    pb.set_message("Removing shares...");
+                }
+                remove_random_shares(&mut shares.shares, params.shares_to_remove as isize);
+
+                if let Some(pb) = progress {
+                    pb.set_message("Reconstructing...");
+                }
+                let reconstruct_start = Instant::now();
+                let (reconstructed_secret, reconstruct_metrics) = aos_parallel::reconstruct(pp, &shares);
+                let reconstruct_duration = reconstruct_start.elapsed();
+
+                (deal_duration, reconstruct_duration, reconstructed_secret, deal_metrics, reconstruct_metrics)
+            }
+        };
+
+    if let Some(pb) = progress {
+        pb.set_message("Done!");
+    }
+
+    let total_time = deal_duration + reconstruct_duration;
+    let success = secret == reconstructed_secret;
+
+    BenchmarkResult {
+        setup_time: Duration::ZERO,
+        deal_time: deal_duration,
+        reconstruct_time: reconstruct_duration,
+        total_time,
+        params: params.clone(),
+        success,
+        deal_metrics,
+        reconstruct_metrics,
+    }
+}
+
 pub fn run_multiple_benchmarks<F: PrimeField<BigInt = BigInt<4>> + Debug>(
     params: &BenchmarkParams,
     num_runs: usize,
+    warmup_runs: usize,
+    cache_setup: bool,
     multi_progress: &MultiProgress,
 ) -> Vec<BenchmarkResult> {
     let pb = multi_progress.add(ProgressBar::new(num_runs as u64));
@@ -492,13 +589,31 @@ pub fn run_multiple_benchmarks<F: PrimeField<BigInt = BigInt<4>> + Debug>(
             .progress_chars("##-"),
     );
     
-    log_info!("Benchmarking {} (c={}, rate={:?}, info_size={:?}, decoder={:?})", 
+    log_info!("Benchmarking {} (c={}, rate={:?}, info_size={:?}, decoder={:?}, cache={})", 
         params.implementation,
         params.c_value,
         params.ldpc_rate,
         params.ldpc_info_size,
-        params.decoder_type
+        params.decoder_type,
+        cache_setup
     );
+
+    let cached_pp = if cache_setup {
+        Some(create_benchmark_setup::<F>(params))
+    } else {
+        None
+    };
+
+    if warmup_runs > 0 {
+        log_verbose!("Running {} warmup iteration(s)...", warmup_runs);
+        for _ in 0..warmup_runs {
+            if let Some(pp) = &cached_pp {
+                let _ = run_single_benchmark_cached::<F>(params, pp, None);
+            } else {
+                let _ = run_single_benchmark::<F>(params, None);
+            }
+        }
+    }
 
     let mut results = Vec::with_capacity(num_runs);
     
@@ -521,7 +636,11 @@ pub fn run_multiple_benchmarks<F: PrimeField<BigInt = BigInt<4>> + Debug>(
         );
         run_progress.set_prefix(format!("[Run {}/{}]", i + 1, num_runs));
         
-        let result = run_single_benchmark::<F>(params, Some(&run_progress));
+        let result = if let Some(pp) = &cached_pp {
+            run_single_benchmark_cached::<F>(params, pp, Some(&run_progress))
+        } else {
+            run_single_benchmark::<F>(params, Some(&run_progress))
+        };
         results.push(result);
         
         run_progress.finish_and_clear();
@@ -1345,6 +1464,7 @@ pub fn run_comprehensive_benchmark<F: PrimeField<BigInt = BigInt<4>> + Debug>(
     implementations: &[Implementation],
     runs_per_config: usize,
     warmup_runs: usize,
+    cache_setup: bool,
     show_detail: bool,
     output_file: Option<&str>,
     secret_value: u128,
@@ -1366,11 +1486,12 @@ pub fn run_comprehensive_benchmark<F: PrimeField<BigInt = BigInt<4>> + Debug>(
         llr_value,
     );
     
-    log_info!("Will run {} parameter combinations with {} runs each ({} total runs, {} warmup each)",
+    log_info!("Will run {} parameter combinations with {} runs each ({} total runs, {} warmup each, cache={})",
         params.len(),
         runs_per_config,
         params.len() * runs_per_config,
-        warmup_runs);
+        warmup_runs,
+        cache_setup);
     
     let multi_progress = Arc::new(MultiProgress::with_draw_target(ProgressDrawTarget::hidden()));
     let mp = Arc::clone(&multi_progress);
@@ -1378,14 +1499,7 @@ pub fn run_comprehensive_benchmark<F: PrimeField<BigInt = BigInt<4>> + Debug>(
     let mut all_results = Vec::new();
     
     for param in params {
-        if warmup_runs > 0 {
-            log_verbose!("Running {} warmup iteration(s) for {} c={}", warmup_runs, param.implementation, param.c_value);
-            for _ in 0..warmup_runs {
-                let _ = run_single_benchmark::<F>(&param, None);
-            }
-        }
-        
-        let results = run_multiple_benchmarks::<F>(&param, runs_per_config, &mp);
+        let results = run_multiple_benchmarks::<F>(&param, runs_per_config, warmup_runs, cache_setup, &mp);
         all_results.extend(results);
     }
     
@@ -1418,7 +1532,6 @@ pub fn run_comprehensive_benchmark<F: PrimeField<BigInt = BigInt<4>> + Debug>(
                 .collect::<Vec<String>>()
                 .join("_");
                 
-            // Include decoder type in filename if only one is used
             let decoder_str = if decoder_types.len() == 1 {
                 format!("_{:?}", decoder_types[0])
             } else {
@@ -1456,6 +1569,7 @@ pub fn run_comprehensive_benchmark_for_ui<F: PrimeField<BigInt = BigInt<4>> + De
     ldpc_info_sizes: &[AR4JAInfoSize],
     implementations: &[Implementation],
     runs_per_config: usize,
+    cache_setup: bool,
     show_detail: bool,
     output_file: Option<&str>,
     status_callback: impl Fn(String),
@@ -1505,7 +1619,7 @@ pub fn run_comprehensive_benchmark_for_ui<F: PrimeField<BigInt = BigInt<4>> + De
             param.decoder_type
         ));
         
-        let results = run_multiple_benchmarks::<F>(param, runs_per_config, &mp);
+        let results = run_multiple_benchmarks::<F>(param, runs_per_config, 0, cache_setup, &mp);
         all_results.extend(results);
     }
     
@@ -1572,10 +1686,6 @@ pub fn run_comprehensive_benchmark_for_ui<F: PrimeField<BigInt = BigInt<4>> + De
             status_callback(format!("Error saving results to JSON: {}", e));
         }
 
-        // if let Err(e) = save_benchmark_results_to_csv(&summary, &output_path) {
-        //     log_error!("Error saving benchmark results to CSV: {}", e);
-        //     status_callback(format!("Error saving results to CSV: {}", e));
-        // }
     }
     
     if was_cancelled {
