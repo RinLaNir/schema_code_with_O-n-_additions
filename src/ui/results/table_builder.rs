@@ -25,15 +25,28 @@ impl TableColumn {
         self
     }
     
-    #[allow(dead_code)]
-    pub fn with_initial_width(mut self, width: f32) -> Self {
-        self.initial_width = Some(width);
-        self
-    }
-    
     pub fn fixed(mut self) -> Self {
         self.resizable = false;
         self
+    }
+
+    fn to_egui_column(&self, is_last: bool, available_width: f32, num_columns: usize) -> Column {
+        if is_last {
+            return Column::remainder().at_least(self.min_width);
+        }
+        if let Some(initial) = self.initial_width {
+            return if self.resizable {
+                Column::initial(initial).at_least(self.min_width).resizable(true)
+            } else {
+                Column::exact(initial)
+            };
+        }
+        let estimated_width = (available_width / num_columns as f32).max(self.min_width);
+        if self.resizable {
+            Column::initial(estimated_width).at_least(self.min_width).resizable(true)
+        } else {
+            Column::auto().at_least(self.min_width)
+        }
     }
 }
 
@@ -54,18 +67,6 @@ impl<'a> ResultsTable<'a> {
         }
     }
     
-    #[allow(dead_code)]
-    pub fn with_row_height(mut self, height: f32) -> Self {
-        self.row_height = height;
-        self
-    }
-    
-    #[allow(dead_code)]
-    pub fn striped(mut self, striped: bool) -> Self {
-        self.striped = striped;
-        self
-    }
-    
     pub fn show<F>(self, ui: &mut Ui, row_count: usize, mut body_fn: F)
     where
         F: FnMut(usize, &mut egui_extras::TableRow),
@@ -81,26 +82,10 @@ impl<'a> ResultsTable<'a> {
         
             let num_columns = self.columns.len();
             for (i, col) in self.columns.iter().enumerate() {
-                let column = if i == num_columns - 1 {
-                    Column::remainder().at_least(col.min_width)
-                } else if let Some(initial) = col.initial_width {
-                    if col.resizable {
-                        Column::initial(initial).at_least(col.min_width).resizable(true)
-                    } else {
-                        Column::exact(initial)
-                    }
-                } else {
-                    let estimated_width = (available_width / num_columns as f32).max(col.min_width);
-                    if col.resizable {
-                        Column::initial(estimated_width).at_least(col.min_width).resizable(true)
-                    } else {
-                        Column::auto().at_least(col.min_width)
-                    }
-                };
-                builder = builder.column(column);
+                builder = builder.column(col.to_egui_column(i == num_columns - 1, available_width, num_columns));
             }
             
-            let mut row_idx = 0usize;
+            let mut row_idx = 0;
             
             builder
                 .header(self.row_height, |mut header| {
@@ -120,44 +105,7 @@ impl<'a> ResultsTable<'a> {
     }
 }
 
-#[allow(dead_code)]
-pub fn standard_benchmark_columns(
-    col_impl: &str,
-    col_block_size: &str,
-    col_rate: &str,
-    col_decoder: &str,
-    col_avg: &str,
-    col_min: &str,
-    col_max: &str,
-    col_median: &str,
-    col_std_dev: &str,
-    col_throughput: Option<&str>,
-    col_success_rate: Option<&str>,
-) -> Vec<TableColumn> {
-    let mut columns = vec![
-        TableColumn::new(col_impl).with_min_width(80.0),
-        TableColumn::new("C").with_min_width(40.0).fixed(),
-        TableColumn::new(col_block_size).with_min_width(80.0),
-        TableColumn::new(col_rate).with_min_width(60.0),
-        TableColumn::new(col_decoder).with_min_width(100.0),
-        TableColumn::new(col_avg).with_min_width(80.0),
-        TableColumn::new(col_min).with_min_width(80.0),
-        TableColumn::new(col_max).with_min_width(80.0),
-        TableColumn::new(col_median).with_min_width(70.0),
-        TableColumn::new(col_std_dev).with_min_width(70.0),
-    ];
-    
-    if let Some(throughput) = col_throughput {
-        columns.push(TableColumn::new(throughput).with_min_width(80.0));
-    }
-    
-    if let Some(success) = col_success_rate {
-        columns.push(TableColumn::new(success).with_min_width(70.0));
-    }
-    
-    columns
-}
-
+#[allow(clippy::too_many_arguments)]
 pub fn phase_detail_columns(
     col_impl: &str,
     col_block_size: &str,

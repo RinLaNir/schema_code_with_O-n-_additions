@@ -4,8 +4,7 @@ use crate::ui::localization::Localization;
 use crate::ui::constants::{self, heading_size, small_size};
 use super::utils::format_duration;
 use super::table_builder::{ResultsTable, TableColumn};
-use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct ConfigKey {
@@ -25,13 +24,8 @@ impl ConfigKey {
         }
     }
     
-    #[allow(dead_code)]
     fn display_label(&self) -> String {
-        format!("C{} {:?} {:?} {:?}", 
-            self.c_value, 
-            self.ldpc_rate, 
-            self.ldpc_info_size, 
-            self.decoder_type)
+        format!("C{} {} {} {}", self.c_value, self.ldpc_rate, self.ldpc_info_size, self.decoder_type)
     }
 }
 
@@ -72,21 +66,15 @@ impl AccelerationTab {
     
     pub fn update_with_summary(&mut self, summary: &BenchmarkSummary) {
         let mut configs: HashSet<ConfigKey> = HashSet::new();
-        for (params, _) in &summary.total_stats {
+        for params in summary.total_stats.keys() {
             configs.insert(ConfigKey::from_params(params));
         }
         
         let mut configs_vec: Vec<_> = configs.into_iter().collect();
         configs_vec.sort_by(|a, b| {
-            let decoder_cmp = a.decoder_type.cmp(&b.decoder_type);
-            if decoder_cmp != Ordering::Equal {
-                return decoder_cmp;
-            }
-            let rate_cmp = a.ldpc_rate.cmp(&b.ldpc_rate);
-            if rate_cmp != Ordering::Equal {
-                return rate_cmp;
-            }
-            a.c_value.cmp(&b.c_value)
+            a.decoder_type.cmp(&b.decoder_type)
+                .then_with(|| a.ldpc_rate.cmp(&b.ldpc_rate))
+                .then_with(|| a.c_value.cmp(&b.c_value))
         });
         
         self.all_configs = configs_vec;
@@ -97,25 +85,36 @@ impl AccelerationTab {
     }
     
     pub fn show(&mut self, ui: &mut Ui) {
-        if self.summary.is_none() {
-            return;
-        }
-        
-        let summary = self.summary.clone().unwrap();
-        
-        let mut has_sequential = false;
-        let mut has_parallel = false;
-        for (params, _) in &summary.total_stats {
-            match params.implementation {
-                Implementation::Sequential => has_sequential = true,
-                Implementation::Parallel => has_parallel = true,
+        // Extract data from summary in a scoped borrow to avoid conflicts with
+        // mutable self access in the ScrollArea closure below.
+        let (has_both_impls, speedup_data) = {
+            let summary = match self.summary.as_ref() {
+                Some(s) => s,
+                None => return,
+            };
+
+            let mut has_sequential = false;
+            let mut has_parallel = false;
+            for params in summary.total_stats.keys() {
+                match params.implementation {
+                    Implementation::Sequential => has_sequential = true,
+                    Implementation::Parallel => has_parallel = true,
+                }
+                if has_sequential && has_parallel {
+                    break;
+                }
             }
-            if has_sequential && has_parallel {
-                break;
-            }
-        }
+
+            let speedup = if has_sequential && has_parallel {
+                self.calculate_speedup_data(summary)
+            } else {
+                Vec::new()
+            };
+
+            (has_sequential && has_parallel, speedup)
+        };
         
-        if !has_sequential || !has_parallel {
+        if !has_both_impls {
             ui.vertical_centered(|ui| {
                 ui.add_space(constants::SECTION_SPACING);
                 ui.label(RichText::new(self.localization.get("acceleration_no_comparison"))
@@ -123,8 +122,6 @@ impl AccelerationTab {
             });
             return;
         }
-        
-        let speedup_data = self.calculate_speedup_data(&summary);
         
         ScrollArea::both().show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -145,13 +142,9 @@ impl AccelerationTab {
                     ui.separator();
                     ui.add_space(constants::SMALL_SPACING);
                     
-                    for config in &self.all_configs.clone() {
+                    for config in self.all_configs.iter() {
                         let is_selected = self.selected_configs.contains(config);
-                        let label = format!("C{} {} {} {}", 
-                            config.c_value,
-                            config.ldpc_rate,
-                            config.ldpc_info_size,
-                            config.decoder_type);
+                        let label = config.display_label();
                         
                         if ui.selectable_label(is_selected && !self.show_all, &label).clicked() {
                             self.show_all = false;
@@ -194,50 +187,37 @@ impl AccelerationTab {
     }
     
     fn calculate_speedup_data(&self, summary: &BenchmarkSummary) -> Vec<SpeedupEntry> {
-        let mut speedup_data = Vec::new();
         let thread_count = rayon::current_num_threads();
-        
-        for (seq_params, seq_stats) in summary.total_stats.iter()
-            .filter(|(p, _)| matches!(p.implementation, Implementation::Sequential)) 
-        {
-            for (par_params, par_stats) in summary.total_stats.iter()
-                .filter(|(p, _)| matches!(p.implementation, Implementation::Parallel)) 
-            {
-                if seq_params.c_value == par_params.c_value &&
-                   seq_params.decoder_type == par_params.decoder_type &&
-                   seq_params.ldpc_info_size == par_params.ldpc_info_size &&
-                   seq_params.ldpc_rate == par_params.ldpc_rate 
-                {
-                    let speedup = seq_stats.avg.as_secs_f64() / par_stats.avg.as_secs_f64();
-                    let percent_faster = (speedup - 1.0) * 100.0;
-                    let efficiency = speedup / thread_count as f64 * 100.0;
-                    
-                    speedup_data.push(SpeedupEntry {
-                        config: ConfigKey::from_params(seq_params),
-                        seq_time: seq_stats.avg,
-                        par_time: par_stats.avg,
-                        speedup,
-                        percent_faster,
-                        efficiency,
-                        thread_count,
-                    });
-                    break;
-                }
-            }
-        }
-        
+
+        let seq_map: HashMap<ConfigKey, _> = summary.total_stats.iter()
+            .filter(|(p, _)| matches!(p.implementation, Implementation::Sequential))
+            .map(|(p, s)| (ConfigKey::from_params(p), s))
+            .collect();
+
+        let mut speedup_data: Vec<SpeedupEntry> = summary.total_stats.iter()
+            .filter(|(p, _)| matches!(p.implementation, Implementation::Parallel))
+            .filter_map(|(par_params, par_stats)| {
+                let config = ConfigKey::from_params(par_params);
+                let seq_stats = seq_map.get(&config)?;
+                let speedup = seq_stats.avg.as_secs_f64() / par_stats.avg.as_secs_f64();
+                Some(SpeedupEntry {
+                    config,
+                    seq_time: seq_stats.avg,
+                    par_time: par_stats.avg,
+                    speedup,
+                    percent_faster: (speedup - 1.0) * 100.0,
+                    efficiency: speedup / thread_count as f64 * 100.0,
+                    thread_count,
+                })
+            })
+            .collect();
+
         speedup_data.sort_by(|a, b| {
-            let decoder_cmp = a.config.decoder_type.cmp(&b.config.decoder_type);
-            if decoder_cmp != Ordering::Equal {
-                return decoder_cmp;
-            }
-            let rate_cmp = a.config.ldpc_rate.cmp(&b.config.ldpc_rate);
-            if rate_cmp != Ordering::Equal {
-                return rate_cmp;
-            }
-            a.config.c_value.cmp(&b.config.c_value)
+            a.config.decoder_type.cmp(&b.config.decoder_type)
+                .then_with(|| a.config.ldpc_rate.cmp(&b.config.ldpc_rate))
+                .then_with(|| a.config.c_value.cmp(&b.config.c_value))
         });
-        
+
         speedup_data
     }
     
@@ -252,19 +232,12 @@ impl AccelerationTab {
             TableColumn::new(self.localization.get("thread_count")).with_min_width(80.0),
         ];
         
-        let data_clone = data.to_vec();
-        
         ResultsTable::new("acceleration_comparison_table", columns)
-            .show(ui, data_clone.len(), |row_idx, row| {
-                let entry = &data_clone[row_idx];
-                
+            .show(ui, data.len(), |row_idx, row| {
+                let entry = &data[row_idx];
+
                 row.col(|ui| {
-                    let label = format!("C{} {} {} {}", 
-                        entry.config.c_value,
-                        entry.config.ldpc_rate,
-                        entry.config.ldpc_info_size,
-                        entry.config.decoder_type);
-                    ui.label(RichText::new(label).size(small_size(ui)));
+                    ui.label(RichText::new(entry.config.display_label()).size(small_size(ui)));
                 });
                 
                 row.col(|ui| {

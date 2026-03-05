@@ -7,14 +7,10 @@ use eframe::egui::{self, Context, RichText};
 use crate::benchmark::{run_comprehensive_benchmark_for_ui, BenchmarkSummary};
 use crate::log_info;
 use crate::ui::benchmark_config::BenchmarkConfig;
+use crate::ui::constants::{MAX_CONTENT_WIDTH, SIDEBAR_BREAKPOINT, SIDEBAR_WIDTH};
 use crate::ui::tabs::{Tab, ConfigureTab, ConfigureAction, ResultsTab, ConsoleTab, AboutTab};
 use crate::ui::components::{Header, StatusBar, BenchmarkState};
-use crate::ui::localization::Localization;
-use crate::ui::logging::get_logger;
-
-const SIDEBAR_BREAKPOINT: f32 = 900.0;
-const SIDEBAR_WIDTH: f32 = 180.0;
-const MAX_CONTENT_WIDTH: f32 = 1200.0;
+use crate::ui::localization::{Language, Localization};
 
 pub struct BenchmarkApp {
     tab: Tab,
@@ -29,15 +25,20 @@ pub struct BenchmarkApp {
     status_bar: StatusBar,
     
     state: BenchmarkState,
-    benchmark_thread: Option<std::thread::JoinHandle<(BenchmarkState, Option<String>, Arc<Mutex<Option<BenchmarkSummary>>>)>>,
+    benchmark_thread: Option<std::thread::JoinHandle<()>>,
     cancel_flag: Arc<AtomicBool>,
+    
+    /// Shared status message updated by worker thread, polled by UI.
+    benchmark_status: Arc<Mutex<Option<String>>>,
+    /// Shared result set by worker thread on completion.
+    benchmark_result: Arc<Mutex<Option<BenchmarkSummary>>>,
+    /// Signals that the worker thread has finished.
+    benchmark_finished: Arc<AtomicBool>,
 }
 
 impl BenchmarkApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let config = BenchmarkConfig::default();
-        
-        let _logger = get_logger();
         
         log_info!("Schema Code Benchmarking UI initialized");
         
@@ -58,6 +59,9 @@ impl BenchmarkApp {
             state: BenchmarkState::Idle,
             benchmark_thread: None,
             cancel_flag: Arc::new(AtomicBool::new(false)),
+            benchmark_status: Arc::new(Mutex::new(None)),
+            benchmark_result: Arc::new(Mutex::new(None)),
+            benchmark_finished: Arc::new(AtomicBool::new(false)),
         }
     }
     
@@ -65,6 +69,9 @@ impl BenchmarkApp {
         let config = self.configure_tab.get_config();
         
         self.cancel_flag.store(false, Ordering::SeqCst);
+        self.benchmark_finished.store(false, Ordering::SeqCst);
+        *self.benchmark_status.lock().expect("Failed to lock status mutex") = None;
+        *self.benchmark_result.lock().expect("Failed to lock result mutex") = None;
         
         crate::ui::logging::set_verbose(config.verbose);
         
@@ -78,15 +85,15 @@ impl BenchmarkApp {
             config.c_values, config.implementations, config.decoder_types,
             config.ldpc_rates, config.ldpc_info_sizes, config.runs_per_config);
         
-        let (tx, rx) = std::sync::mpsc::channel();
-        
-        let result_data = Arc::new(Mutex::new(None));
-        let result_data_clone = result_data.clone();
-        
+        let status = self.benchmark_status.clone();
+        let result = self.benchmark_result.clone();
+        let finished = self.benchmark_finished.clone();
         let cancel_flag = self.cancel_flag.clone();
+        let preparing_msg = self.localization.get("status_preparing").to_string();
+        let completed_msg = self.localization.get("status_completed").to_string();
         
-        thread::spawn(move || {
-            let _ = tx.send(("status", "Підготовка середовища для бенчмаркінгу...".to_string()));
+        let handle = thread::spawn(move || {
+            *status.lock().expect("Failed to lock status mutex") = Some(preparing_msg);
             
             let summary = run_comprehensive_benchmark_for_ui::<Fr>(
                 &config.c_values,
@@ -98,17 +105,9 @@ impl BenchmarkApp {
                 config.runs_per_config,
                 config.cache_setup,
                 config.show_detail,
-                if config.save_results {
-                    if config.output_filename.is_empty() {
-                        Some("")
-                    } else {
-                        Some(&config.output_filename)
-                    }
-                } else {
-                    None
-                },
+                config.save_results.then_some(config.output_filename.as_str()),
                 |status_message| {
-                    let _ = tx.send(("progress", status_message));
+                    *status.lock().expect("Failed to lock status mutex") = Some(status_message);
                 },
                 config.secret_value,
                 config.max_iterations,
@@ -116,38 +115,9 @@ impl BenchmarkApp {
                 cancel_flag,
             );
             
-            *result_data_clone.lock().expect("Failed to lock result data mutex") = Some(summary);
-            
-            let _ = tx.send(("status", "Benchmarking completed successfully!".to_string()));
-            let _ = tx.send(("complete", "".to_string()));
-        });
-        
-        let state = Arc::new(Mutex::new(self.state.clone())); 
-        let status = Arc::new(Mutex::new(None::<String>));
-        let results_data_for_ui = result_data.clone();
-        
-        let handle = std::thread::spawn(move || {
-            while let Ok((msg_type, content)) = rx.recv() {
-                match msg_type {
-                    "status" => {
-                        *status.lock().expect("Failed to lock status mutex") = Some(content);
-                    },
-                    "progress" => {
-                        *status.lock().expect("Failed to lock status mutex") = Some(content);
-                    },
-                    "complete" => {
-                        *state.lock().expect("Failed to lock state mutex") = BenchmarkState::Finished;
-                        break;
-                    },
-                    _ => {}
-                }
-            }
-            
-            (
-                (*state.lock().expect("Failed to lock state mutex")).clone(),
-                status.lock().expect("Failed to lock status mutex").clone(),
-                results_data_for_ui
-            )
+            *result.lock().expect("Failed to lock result mutex") = Some(summary);
+            *status.lock().expect("Failed to lock status mutex") = Some(completed_msg);
+            finished.store(true, Ordering::SeqCst);
         });
         
         self.benchmark_thread = Some(handle);
@@ -156,28 +126,7 @@ impl BenchmarkApp {
 
 impl eframe::App for BenchmarkApp {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        if let Some(handle) = &self.benchmark_thread {
-            if handle.is_finished() {
-                if let Some(handle) = self.benchmark_thread.take() {
-                    if let Ok((state, status_message, result_data)) = handle.join() {
-                        self.state = state.clone();
-                        self.status_bar.set_state(state);
-                        
-                        if let Some(msg) = status_message {
-                            self.status_bar.set_message(Some(msg));
-                        }
-                        
-                        if let Ok(data) = result_data.lock() {
-                            if let Some(summary) = &*data {
-                                self.results_tab.update_with_summary(summary);
-                                
-                                self.tab = Tab::Results;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        self.poll_benchmark_progress();
 
         let screen_width = ctx.viewport_rect().width();
         let use_sidebar = screen_width >= SIDEBAR_BREAKPOINT;
@@ -187,10 +136,8 @@ impl eframe::App for BenchmarkApp {
                 if let Some(language) = self.header.show_minimal(ui) {
                     self.update_language(language);
                 }
-            } else {
-                if let Some(language) = self.header.show(ui, &mut self.tab) {
-                    self.update_language(language);
-                }
+            } else if let Some(language) = self.header.show(ui, &mut self.tab) {
+                self.update_language(language);
             }
         });
         
@@ -229,18 +176,46 @@ impl eframe::App for BenchmarkApp {
             });
         });
         
-        if let BenchmarkState::Running = self.state {
+        if matches!(self.state, BenchmarkState::Running) {
             ctx.request_repaint();
         }
     }
 }
 
 impl BenchmarkApp {
-    fn update_language(&mut self, language: crate::ui::localization::Language) {
+    fn poll_benchmark_progress(&mut self) {
+        if !matches!(self.state, BenchmarkState::Running) {
+            return;
+        }
+
+        if let Ok(status) = self.benchmark_status.lock() {
+            if let Some(msg) = status.as_ref() {
+                self.status_bar.set_message(Some(msg.clone()));
+            }
+        }
+
+        if self.benchmark_finished.load(Ordering::SeqCst) {
+            if let Some(handle) = self.benchmark_thread.take() {
+                let _ = handle.join();
+            }
+
+            self.state = BenchmarkState::Finished;
+            self.status_bar.set_state(BenchmarkState::Finished);
+
+            if let Ok(result) = self.benchmark_result.lock() {
+                if let Some(summary) = result.as_ref() {
+                    self.results_tab.update_with_summary(summary);
+                    self.tab = Tab::Results;
+                }
+            }
+        }
+    }
+
+    fn update_language(&mut self, language: Language) {
         self.localization.set_language(language);
         
         self.header.update(&self.localization);
-        let message_clone = self.status_bar.get_message().as_ref().cloned();
+        let message_clone = self.status_bar.get_message().map(str::to_owned);
         self.status_bar.update(self.state.clone(), message_clone, &self.localization);
         self.configure_tab.update_localization(&self.localization);
         self.results_tab.update_localization(&self.localization);

@@ -8,8 +8,8 @@ use ark_std::rand::Rng;
 use ark_ff::{PrimeField, BigInt};
 use ldpc_toolbox::gf2::GF2;
 use ndarray::Array2;
-use num_traits::Zero;
-use indicatif::ProgressBar;
+use num_traits::{Zero, One};
+use rayon::prelude::*;
 use std::time::Instant;
 
 use crate::types::{
@@ -20,30 +20,63 @@ use crate::code::AdditiveCode;
 use crate::code::ldpc_impl::LdpcCode;
 use crate::{log_verbose, log_success};
 
-/// Creates a new progress bar with a consistent style.
-/// Progress bars are hidden to avoid terminal output - progress is tracked internally.
-pub fn create_progress_bar(total: u64, _template: &str) -> ProgressBar {
-    let pb = ProgressBar::new(total);
-    // Hide progress bar output - we only use it for internal tracking
-    pb.set_draw_target(indicatif::ProgressDrawTarget::hidden());
-    pb
+/// Convert a decoded codeword (byte slice of 0/1 values) into GF2 elements,
+/// writing directly into a pre-allocated output slice to avoid per-row allocations.
+///
+/// # Arguments
+/// * `codeword` - Decoded byte slice where each byte is 0 or 1
+/// * `out` - Pre-allocated mutable slice to write GF2 values into (must be `len` long)
+/// * `len` - Number of elements to convert (takes first `len` bytes from `codeword`)
+#[inline]
+pub fn codeword_to_gf2_buf(codeword: &[u8], out: &mut [GF2], len: usize) {
+    let gf2_one = GF2::one();
+    let gf2_zero = GF2::zero();
+    for (dst, &byte) in out[..len].iter_mut().zip(codeword.iter().take(len)) {
+        *dst = if byte == 1 { gf2_one } else { gf2_zero };
+    }
 }
 
-/// Progress bar templates for different operations
-pub mod progress_templates {
-    pub const COEFFICIENTS: &str = "[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} coefficients generated ({percent}%)";
-    pub const RANDOM_VALUES: &str = "[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} random values generated ({percent}%)";
-    pub const COLUMNS: &str = "[{elapsed_precise}] {bar:40.yellow/blue} {pos}/{len} columns processed ({percent}%)";
-    pub const ENCODING: &str = "[{elapsed_precise}] {bar:40.green/blue} {pos}/{len} rows encoded ({percent}%)";
-    pub const DECODING: &str = "[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} rows decoded ({percent}%) - {msg}";
-    pub const RECONSTRUCTION: &str = "[{elapsed_precise}] {bar:40.green/blue} {pos}/{len} values reconstructed ({percent}%)";
+/// Convert a single column of a decoded GF2 matrix into a field element.
+///
+/// Shared logic for `reconstruct_field_elements` in both sequential and parallel strategies.
+/// Reads a column, maps GF2 → bool, reconstructs via `BigInteger::from_bits_le`.
+#[inline]
+pub fn column_to_field_element<F: PrimeField<BigInt = BigInt<4>>>(
+    decoded_matrix: &Array2<GF2>,
+    col: usize,
+) -> F {
+    let bool_vec: Vec<bool> = decoded_matrix.column(col)
+        .iter()
+        .map(|x| x.is_one())
+        .collect();
+    let big_int = ark_ff::BigInteger::from_bits_le(&bool_vec);
+    F::from_bigint(big_int).expect("Failed to convert BigInt to field element")
 }
 
-/// Setup the secret sharing scheme parameters.
-/// 
-/// This function initializes the LDPC code and generates random coefficients.
-/// The implementation is identical for both sequential and parallel versions.
-/// 
+/// Compute dot product of two field-element slices strictly sequentially.
+///
+/// This function is used by the sequential execution strategy to keep
+/// baseline measurements single-threaded.
+pub fn dot_product_sequential<F: ark_ff::Field>(a: &[F], b: &[F]) -> F {
+    a.iter().zip(b).fold(F::zero(), |acc, (x, y)| acc + (*x * *y))
+}
+
+/// Compute dot product with adaptive parallelism (parallel for ≥ 1024 elements).
+pub fn dot_product_adaptive<F: ark_ff::Field + Send + Sync>(a: &[F], b: &[F]) -> F {
+    const CHUNK_SIZE: usize = 1024;
+
+    if a.len() < CHUNK_SIZE {
+        return dot_product_sequential(a, b);
+    }
+
+    a.par_chunks(CHUNK_SIZE)
+        .zip(b.par_chunks(CHUNK_SIZE))
+        .map(|(ac, bc)| ac.iter().zip(bc).fold(F::zero(), |acc, (x, y)| acc + (*x * *y)))
+        .reduce(|| F::zero(), |acc, x| acc + x)
+}
+
+/// Initialize the LDPC code and generate random coefficients.
+///
 /// # Arguments
 /// * `params` - LDPC code initialization parameters
 /// * `c` - Upper bound for random coefficient generation
@@ -67,15 +100,12 @@ pub fn setup<F: PrimeField>(params: CodeInitParams, c: u32) -> SecretParams<Ldpc
     let mut rng = ark_std::rand::thread_rng();
     
     log_verbose!("Generating {} random coefficients...", output_length);
-    let progress_bar = create_progress_bar(output_length as u64, progress_templates::COEFFICIENTS);
     
     let a: Vec<F> = (0..output_length).map(|_| {
         let val = rng.gen_range(0..c);
-        progress_bar.inc(1);
         F::from(val as u64)
     }).collect();
     
-    progress_bar.finish();
     log_success!("Setup completed in {:.2?} (n={}, k={})", start_time.elapsed(), output_length, input_length);
 
     SecretParams {
@@ -88,56 +118,17 @@ pub fn setup<F: PrimeField>(params: CodeInitParams, c: u32) -> SecretParams<Ldpc
     }
 }
 
-/// Trait defining execution strategy for secret sharing operations.
-/// 
-/// This trait allows different implementations (sequential, parallel, GPU, etc.)
-/// to provide their own execution strategy for computationally intensive phases.
+/// Execution strategy for secret sharing operations (sequential, parallel, etc.).
 pub trait ExecutionStrategy {
-    /// Generate a random vector of field elements.
     fn generate_random_vec<F: PrimeField>(len: usize) -> Vec<F>;
-    
-    /// Compute dot product of two vectors.
     fn dot_product<F: PrimeField>(a: &[F], b: &[F]) -> F;
-    
-    /// Create message matrix from random vector.
-    /// Converts field elements to GF2 bit representation.
-    fn create_message_matrix<F: PrimeField>(
-        r_vec: &[F], 
-        nrows: usize, 
-        ncols: usize,
-        progress_bar: &ProgressBar
-    ) -> Array2<GF2>;
-    
-    /// Encode rows of the message matrix using the LDPC code.
-    fn encode_rows(
-        message_matrix: &Array2<GF2>,
-        code_impl: &LdpcCode,
-        nrows: usize,
-        output_cols: usize,
-        progress_bar: &ProgressBar
-    ) -> Array2<GF2>;
-    
-    /// Decode rows using the LDPC decoder.
-    /// Returns decoded matrix and DecodingStats (iterations, success counts, etc.).
-    fn decode_rows(
-        encoded_matrix: &Array2<GF2>,
-        code_impl: &LdpcCode,
-        present_columns: &[bool],
-        input_length: usize,
-        nrows: usize,
-        progress_bar: &ProgressBar
-    ) -> (Array2<GF2>, DecodingStats);
-    
-    /// Reconstruct field elements from decoded GF2 matrix.
-    fn reconstruct_field_elements<F: PrimeField<BigInt = BigInt<4>>>(
-        decoded_matrix: &Array2<GF2>,
-        input_length: usize,
-        progress_bar: &ProgressBar
-    ) -> Vec<F>;
+    fn create_message_matrix<F: PrimeField>(r_vec: &[F], nrows: usize, ncols: usize) -> Array2<GF2>;
+    fn encode_rows(message_matrix: &Array2<GF2>, code_impl: &LdpcCode, nrows: usize, output_cols: usize) -> Array2<GF2>;
+    fn decode_rows(encoded_matrix: &Array2<GF2>, code_impl: &LdpcCode, present_columns: &[bool], input_length: usize, nrows: usize) -> (Array2<GF2>, DecodingStats);
+    fn reconstruct_field_elements<F: PrimeField<BigInt = BigInt<4>>>(decoded_matrix: &Array2<GF2>, input_length: usize) -> Vec<F>;
 }
 
-/// Create shares from encoded matrix.
-/// This is common logic for both sequential and parallel implementations.
+/// Create shares from encoded matrix columns.
 pub fn create_shares_from_matrix(
     encoded_matrix: &Array2<GF2>,
     output_length: u32
@@ -160,42 +151,30 @@ where
 
     // Phase 1: Random vector generation
     let rand_vec_start = Instant::now();
-    let progress_bar = create_progress_bar(
-        pp.code.input_length as u64, 
-        progress_templates::RANDOM_VALUES
-    );
     let r_vec: Vec<F> = S::generate_random_vec(pp.code.input_length as usize);
-    progress_bar.set_position(pp.code.input_length as u64);
-    progress_bar.finish_and_clear();
     let rand_vec_duration = rand_vec_start.elapsed();
 
     // Phase 2: Calculate z0 = s + Σ a_i*r_i
     let dot_start = Instant::now();
-    let mut z0 = s;
-    z0 += S::dot_product(&pp.a, &r_vec);
+    let z0 = s + S::dot_product(&pp.a, &r_vec);
     let dot_duration = dot_start.elapsed();
 
     // Phase 3: Message matrix creation
     let matrix_start = Instant::now();
     let nrows = <F as PrimeField>::MODULUS_BIT_SIZE as usize;
     let ncols = pp.code.input_length as usize;
-    let matrix_progress = create_progress_bar(ncols as u64, progress_templates::COLUMNS);
-    let message_matrix = S::create_message_matrix(&r_vec, nrows, ncols, &matrix_progress);
-    matrix_progress.finish_and_clear();
+    let message_matrix = S::create_message_matrix(&r_vec, nrows, ncols);
     let matrix_duration = matrix_start.elapsed();
 
     // Phase 4: Encoding
     let encoding_start = Instant::now();
     let output_cols = pp.code.output_length as usize;
-    let encoding_progress = create_progress_bar(nrows as u64, progress_templates::ENCODING);
     let encoded_matrix = S::encode_rows(
         &message_matrix, 
         &pp.code.code_impl, 
         nrows, 
         output_cols, 
-        &encoding_progress
     );
-    encoding_progress.finish_with_message("encoding completed");
     let encoding_duration = encoding_start.elapsed();
 
     // Phase 5: Share creation
@@ -205,7 +184,6 @@ where
 
     let total_duration = start_time.elapsed();
 
-    // Create metrics
     let metrics = DealMetrics {
         rand_vec_generation: PhaseMetrics::new("Random vector generation", rand_vec_duration, total_duration),
         dot_product: PhaseMetrics::new("Dot product calculation", dot_duration, total_duration),
@@ -215,10 +193,7 @@ where
         total_time: total_duration,
     };
 
-    // Summary log (always shown)
     log_success!("Deal completed in {:.2?} (encoding: {:.1}%)", total_duration, metrics.encoding.percentage);
-    
-    // Verbose breakdown (only when verbose mode enabled)
     log_verbose!("Deal breakdown: rand={:.2?} ({:.1}%), dot={:.2?} ({:.1}%), matrix={:.2?} ({:.1}%), enc={:.2?} ({:.1}%), shares={:.2?} ({:.1}%)", 
              rand_vec_duration, metrics.rand_vec_generation.percentage,
              dot_duration, metrics.dot_product.percentage,
@@ -264,8 +239,6 @@ where
 
     // Phase 2: Decoding
     let decoding_start = Instant::now();
-    let progress_bar = create_progress_bar(nrows as u64, progress_templates::DECODING);
-    progress_bar.set_message("decoding in progress...");
 
     let (decoded_matrix, decoding_stats) = S::decode_rows(
         &encoded_matrix,
@@ -273,34 +246,19 @@ where
         &present_columns,
         pp.code.input_length as usize,
         nrows,
-        &progress_bar
     );
 
     let decoding_duration = decoding_start.elapsed();
-    progress_bar.finish_with_message(format!(
-        "decoding completed in {:.2?}: {:.2}% success rate",
-        decoding_duration,
-        decoding_stats.success_rate() * 100.0
-    ));
 
     // Phase 3: Field element reconstruction
     let reconstruction_start = Instant::now();
-    let reconstruct_bar = create_progress_bar(
-        pp.code.input_length as u64, 
-        progress_templates::RECONSTRUCTION
-    );
 
     let r: Vec<F> = S::reconstruct_field_elements(
         &decoded_matrix,
         pp.code.input_length as usize,
-        &reconstruct_bar
     );
 
     let reconstruction_duration = reconstruction_start.elapsed();
-    reconstruct_bar.finish_with_message(format!(
-        "field elements reconstructed in {:.2?}",
-        reconstruction_duration
-    ));
 
     // Phase 4: Final computation
     let final_start = Instant::now();
@@ -310,7 +268,6 @@ where
 
     let total_duration = start_time.elapsed();
 
-    // Create metrics
     let metrics = ReconstructMetrics {
         matrix_setup: PhaseMetrics::new("Matrix setup", setup_duration, total_duration),
         row_decoding: PhaseMetrics::new("Row decoding", decoding_duration, total_duration),
@@ -320,16 +277,59 @@ where
         decoding_stats: Some(decoding_stats.clone()),
     };
 
-    // Summary log (always shown)
     let success_rate = decoding_stats.success_rate() * 100.0;
     log_success!("Reconstruct completed in {:.2?} (decoding: {:.1}%, success: {:.1}%, avg_iter: {:.1})", 
         total_duration, metrics.row_decoding.percentage, success_rate, decoding_stats.avg_iterations);
-    
-    // Verbose breakdown (only when verbose mode enabled)
     log_verbose!("Reconstruct: missing={}/{} ({:.1}%), decode={}/{} ok, iter_avg={:.1}, max_hit={}, setup={:.2?}, decode={:.2?}, recon={:.2?}, final={:.2?}",
              missing_count, ncols, (missing_count as f64 / ncols as f64) * 100.0,
              decoding_stats.successful_rows, nrows, decoding_stats.avg_iterations, decoding_stats.max_iterations_hit,
              setup_duration, decoding_duration, reconstruction_duration, final_duration);
 
     (result, Some(metrics))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{dot_product_adaptive, dot_product_sequential};
+    use ark_bls12_381::Fr;
+
+    #[test]
+    fn test_dot_product_sequential_zeros() {
+        let a: Vec<Fr> = vec![Fr::from(0u64); 5];
+        let b: Vec<Fr> = vec![Fr::from(1u64); 5];
+        assert_eq!(dot_product_sequential(&a, &b), Fr::from(0u64));
+    }
+
+    #[test]
+    fn test_dot_product_sequential_ones() {
+        let a: Vec<Fr> = vec![Fr::from(1u64); 5];
+        let b: Vec<Fr> = vec![Fr::from(1u64); 5];
+        assert_eq!(dot_product_sequential(&a, &b), Fr::from(5u64));
+    }
+
+    #[test]
+    fn test_dot_product_sequential_mixed() {
+        let a = vec![Fr::from(1u64), Fr::from(2u64), Fr::from(3u64)];
+        let b = vec![Fr::from(4u64), Fr::from(5u64), Fr::from(6u64)];
+        assert_eq!(dot_product_sequential(&a, &b), Fr::from(32u64));
+    }
+
+    #[test]
+    fn test_dot_product_adaptive_large_vector() {
+        let size = 2048;
+        let a: Vec<Fr> = vec![Fr::from(2u64); size];
+        let b: Vec<Fr> = vec![Fr::from(3u64); size];
+        // 2 * 3 * 2048 = 12288
+        assert_eq!(dot_product_adaptive(&a, &b), Fr::from(12288u64));
+    }
+
+    #[test]
+    fn test_dot_product_sequential_and_adaptive_consistency() {
+        let small: Vec<Fr> = (1..100).map(|i| Fr::from(i as u64)).collect();
+        assert_eq!(dot_product_sequential(&small, &small), dot_product_adaptive(&small, &small));
+
+        let large: Vec<Fr> = (1..2000).map(|i| Fr::from(i as u64)).collect();
+        let large_ones: Vec<Fr> = vec![Fr::from(1u64); large.len()];
+        assert_eq!(dot_product_sequential(&large, &large_ones), dot_product_adaptive(&large, &large_ones));
+    }
 }

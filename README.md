@@ -99,8 +99,8 @@ cargo run --release -- benchmark --runs=5 --c=10,20 --rates=1_2,4_5 --sizes=K102
 | `--rates=R1,R2,...` | LDPC rates: `1_2`, `2_3`, `4_5` |
 | `--sizes=S1,S2,...` | Info sizes: `K1024`, `K4096`, `K16384` |
 | `--decoders=D1,D2,...` | Decoder types or `all` for all available decoders |
-| `--output` | Auto-generate timestamped output CSV filename |
-| `--output=FILE` | Save results to specific file (creates `FILE_summary.csv` and `FILE_phases.csv`) |
+| `--output` | Auto-generate timestamped output JSON filename |
+| `--output=FILE` | Save results to specific file (creates `FILE.json`) |
 
 ### Help
 
@@ -144,7 +144,7 @@ Tests verify:
 ### User Interface
 - **GUI Application**: Full-featured desktop application using egui
 - **Results Visualization**: Charts and tables for benchmark results
-- **CSV Export**: Save results for external analysis
+- **JSON Export**: Save and import results for analysis
 - **Localization**: English and Ukrainian language support
 
 ## Project Structure

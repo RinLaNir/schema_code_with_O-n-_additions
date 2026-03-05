@@ -1,3 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::time::{SystemTime, UNIX_EPOCH};
 use eframe::egui::{self, Color32, RichText, ScrollArea, Ui};
 use ldpc_toolbox::codes::ccsds::{AR4JAInfoSize, AR4JARate};
 use crate::benchmark::Implementation;
@@ -52,7 +55,7 @@ impl ConfigureTab {
             runs_value: config.runs_per_config.to_string(),
             warmup_value: config.warmup_runs.to_string(),
             shares_to_remove_value: config.shares_to_remove.first().map_or("100".to_string(), |s| s.abs().to_string()),
-            shares_to_remove_as_percentage: config.shares_to_remove.first().map_or(false, |&s| s < 0),
+            shares_to_remove_as_percentage: config.shares_to_remove.first().is_some_and(|&s| s < 0),
             llr_value: config.llr_value.to_string(),
             max_iterations_value: config.max_iterations.to_string(),
             
@@ -78,7 +81,20 @@ impl ConfigureTab {
         ui.add_space(10.0);
         
         ScrollArea::vertical().show(ui, |ui| {
-            egui::Frame::group(ui.style())
+            self.render_basic_params(ui);
+            ui.add_space(10.0);
+            self.render_code_params(ui);
+            ui.add_space(10.0);
+            self.render_output_settings(ui);
+            ui.add_space(20.0);
+            action = self.render_action_buttons(ui, is_running);
+        });
+        
+        action
+    }
+    
+    fn render_basic_params(&mut self, ui: &mut Ui) {
+        egui::Frame::group(ui.style())
                 .stroke(egui::Stroke::new(1.0, Color32::from_rgb(150, 150, 180)))
                 .corner_radius(8.0)
                 .inner_margin(12)
@@ -116,14 +132,7 @@ impl ConfigureTab {
                                 ui.checkbox(&mut self.shares_to_remove_as_percentage, self.localization.get("as_percentage"));
                             });
 
-                            if let Ok(mut value) = self.shares_to_remove_value.parse::<isize>() {
-                                if self.shares_to_remove_as_percentage && value > 0 {
-                                    value = -value;
-                                } else if !self.shares_to_remove_as_percentage && value < 0 {
-                                    value = -value;
-                                }
-                                self.config.shares_to_remove = vec![value];
-                            }
+                            self.sync_shares_config();
                         });
                         
                         cols[1].vertical(|ui| {
@@ -239,15 +248,15 @@ impl ConfigureTab {
                                     0 => vec![Implementation::Sequential, Implementation::Parallel],
                                     1 => vec![Implementation::Sequential],
                                     2 => vec![Implementation::Parallel],
-                                    _ => vec![Implementation::Sequential, Implementation::Parallel],
+                                    _ => unreachable!("implementation index out of range"),
                                 };
                             }
                         }
                     });
                 });
-            
-            ui.add_space(10.0);
-            
+    }
+    
+    fn render_code_params(&mut self, ui: &mut Ui) {
             egui::Frame::group(ui.style())
                 .stroke(egui::Stroke::new(1.0, Color32::from_rgb(150, 150, 180)))
                 .corner_radius(8.0)
@@ -318,9 +327,9 @@ impl ConfigureTab {
                         }
                     );
                 });
-            
-            ui.add_space(10.0);
-            
+    }
+    
+    fn render_output_settings(&mut self, ui: &mut Ui) {
             egui::Frame::group(ui.style())
                 .stroke(egui::Stroke::new(1.0, Color32::from_rgb(150, 150, 180)))
                 .corner_radius(8.0)
@@ -346,9 +355,11 @@ impl ConfigureTab {
                         }
                     });
                 });
-            
-            ui.add_space(20.0);
-            
+    }
+    
+    fn render_action_buttons(&mut self, ui: &mut Ui, is_running: bool) -> Option<ConfigureAction> {
+        let mut action: Option<ConfigureAction> = None;
+        
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
                 if is_running {
                     let stop_button = egui::Button::new(
@@ -426,7 +437,6 @@ impl ConfigureTab {
                         });
                 }
             });
-        });
         
         action
     }
@@ -448,28 +458,18 @@ impl ConfigureTab {
             self.config.max_iterations = max_iter;
         }
         
-        if let Ok(mut value) = self.shares_to_remove_value.parse::<isize>() {
-            if self.shares_to_remove_as_percentage && value > 0 {
-                value = -value;
-            } else if !self.shares_to_remove_as_percentage && value < 0 {
-                value = -value;
-            }
-            self.config.shares_to_remove = vec![value];
-        }
+        self.sync_shares_config();
         
         self.config.secret_random = self.secret_random;
         if self.secret_random {
             self.config.secret_seed = self.secret_seed.parse::<u64>().ok();
             if let Some(seed) = self.config.secret_seed {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
                 let mut hasher = DefaultHasher::new();
                 seed.hash(&mut hasher);
                 self.config.secret_value = hasher.finish() as u128;
             } else {
-                use std::time::{SystemTime, UNIX_EPOCH};
                 let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-                self.config.secret_value = duration.as_nanos() as u128;
+                self.config.secret_value = duration.as_nanos();
             }
         } else {
             let parse_result = if self.secret_hex_mode {
@@ -485,7 +485,18 @@ impl ConfigureTab {
         
         self.config.decoder_types = self.decoder_selector.get_selected_decoders();
     }
-    
+
+    fn sync_shares_config(&mut self) {
+        if let Ok(mut value) = self.shares_to_remove_value.parse::<isize>() {
+            if (self.shares_to_remove_as_percentage && value > 0)
+                || (!self.shares_to_remove_as_percentage && value < 0)
+            {
+                value = -value;
+            }
+            self.config.shares_to_remove = vec![value];
+        }
+    }
+
     pub fn get_config(&self) -> BenchmarkConfig {
         self.config.clone()
     }

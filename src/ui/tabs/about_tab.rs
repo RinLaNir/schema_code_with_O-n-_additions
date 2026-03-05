@@ -31,7 +31,7 @@ impl AboutTab {
         ui.label(self.localization.get("instruction_4"));
         
         ui.add_space(10.0);
-        
+
         ui.heading(self.localization.get("benchmark_params_heading"));
         ui.label(self.localization.get("param_c_desc"));
         ui.label(self.localization.get("param_runs_desc"));

@@ -3,5 +3,6 @@
 
 .idea/
 results/
+.github/
 
 benchmark*

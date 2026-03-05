@@ -1,11 +1,10 @@
 use eframe::egui::{RichText, ScrollArea, Ui, Sense};
-use crate::benchmark::{BenchmarkSummary, BenchmarkParams, BenchmarkStats, Implementation};
+use crate::benchmark::{BenchmarkSummary, BenchmarkParams, BenchmarkStats};
 use crate::ui::localization::Localization;
 use crate::ui::constants::{self, heading_size, TABLE_ROW_HEIGHT};
-use super::utils::format_duration;
+use super::utils::{format_duration, compare_benchmark_params};
 use super::table_builder::TableColumn;
 use egui_extras::{Column, TableBuilder};
-use std::cmp::Ordering;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum SortDirection {
@@ -72,15 +71,17 @@ impl SummaryTab {
     }
     
     pub fn show(&mut self, ui: &mut Ui) {
+        let mut clicked_column: Option<SortColumn> = None;
+        
         ScrollArea::both().show(ui, |ui| {
-            if let Some(summary) = &self.summary.clone() {
+            if let Some(ref summary) = self.summary {
                 ui.horizontal(|ui| {
                     ui.heading(RichText::new(self.localization.get("total_execution_time")).size(heading_size(ui)));
                     ui.add_space(constants::ITEM_SPACING);
-                    if self.sort_column.is_some() {
-                        if ui.button(self.localization.get("reset_sort")).clicked() {
-                            self.sort_column = None;
-                        }
+                    if self.sort_column.is_some()
+                        && ui.button(self.localization.get("reset_sort")).clicked()
+                    {
+                        self.sort_column = None;
                     }
                 });
                 ui.add_space(constants::SMALL_SPACING);
@@ -88,15 +89,27 @@ impl SummaryTab {
                 let mut entries: Vec<_> = summary.total_stats.iter()
                     .map(|(p, s)| (p.clone(), s.clone()))
                     .collect();
-                self.apply_sort(&mut entries, &summary);
+                Self::apply_sort(self.sort_column, self.sort_direction, &mut entries, summary);
                 
                 let columns = self.build_columns();
                 
                 ui.push_id("summary_section", |ui| {
-                    self.show_sortable_table(ui, &entries, &columns, &summary);
+                    clicked_column = Self::show_sortable_table(
+                        self.sort_column, self.sort_direction,
+                        ui, &entries, &columns, summary,
+                    );
                 });
             }
         });
+        
+        if let Some(col) = clicked_column {
+            if self.sort_column == Some(col) {
+                self.sort_direction = self.sort_direction.toggle();
+            } else {
+                self.sort_column = Some(col);
+                self.sort_direction = SortDirection::Ascending;
+            }
+        }
     }
     
     fn build_columns(&self) -> Vec<(TableColumn, SortColumn)> {
@@ -116,7 +129,14 @@ impl SummaryTab {
         ]
     }
     
-    fn show_sortable_table(&mut self, ui: &mut Ui, entries: &[(BenchmarkParams, BenchmarkStats)], columns: &[(TableColumn, SortColumn)], summary: &BenchmarkSummary) {
+    fn show_sortable_table(
+        sort_column: Option<SortColumn>,
+        sort_direction: SortDirection,
+        ui: &mut Ui,
+        entries: &[(BenchmarkParams, BenchmarkStats)],
+        columns: &[(TableColumn, SortColumn)],
+        summary: &BenchmarkSummary,
+    ) -> Option<SortColumn> {
         let available_width = ui.available_width();
         let num_columns = columns.len();
         
@@ -140,8 +160,6 @@ impl SummaryTab {
             builder = builder.column(column);
         }
         
-        let sort_column = self.sort_column;
-        let sort_direction = self.sort_direction;
         let mut clicked_column: Option<SortColumn> = None;
         
         builder
@@ -175,7 +193,7 @@ impl SummaryTab {
                     let row_idx = row.index();
                     let (params, stats) = &entries[row_idx];
                     
-                    row.col(|ui| { ui.label(format!("{}", params.implementation)); });
+                    row.col(|ui| { ui.label(params.implementation.to_string()); });
                     row.col(|ui| { ui.label(format!("{}", params.c_value)); });
                     row.col(|ui| { ui.label(format!("{:?}", params.ldpc_info_size)); });
                     row.col(|ui| { ui.label(format!("{:?}", params.ldpc_rate)); });
@@ -207,40 +225,26 @@ impl SummaryTab {
                 });
             });
         
-        if let Some(col) = clicked_column {
-            if self.sort_column == Some(col) {
-                self.sort_direction = self.sort_direction.toggle();
-            } else {
-                self.sort_column = Some(col);
-                self.sort_direction = SortDirection::Ascending;
-            }
-        }
+        clicked_column
     }
     
-    fn apply_sort(&self, entries: &mut Vec<(BenchmarkParams, BenchmarkStats)>, summary: &BenchmarkSummary) {
-        let sort_col = match self.sort_column {
+    fn apply_sort(
+        sort_column: Option<SortColumn>,
+        sort_direction: SortDirection,
+        entries: &mut [(BenchmarkParams, BenchmarkStats)],
+        summary: &BenchmarkSummary,
+    ) {
+        let sort_col = match sort_column {
             Some(col) => col,
             None => {
-                entries.sort_by(|a, b| {
-                    let decoder_cmp = format!("{:?}", a.0.decoder_type).cmp(&format!("{:?}", b.0.decoder_type));
-                    if decoder_cmp != Ordering::Equal { return decoder_cmp; }
-                    let rate_cmp = format!("{:?}", a.0.ldpc_rate).cmp(&format!("{:?}", b.0.ldpc_rate));
-                    if rate_cmp != Ordering::Equal { return rate_cmp; }
-                    match (a.0.implementation, b.0.implementation) {
-                        (Implementation::Sequential, Implementation::Parallel) => Ordering::Less,
-                        (Implementation::Parallel, Implementation::Sequential) => Ordering::Greater,
-                        _ => Ordering::Equal,
-                    }
-                });
+                entries.sort_by(|a, b| compare_benchmark_params(&a.0, &b.0));
                 return;
             }
         };
         
-        let direction = self.sort_direction;
-        
         entries.sort_by(|a, b| {
             let cmp = match sort_col {
-                SortColumn::Implementation => format!("{}", a.0.implementation).cmp(&format!("{}", b.0.implementation)),
+                SortColumn::Implementation => a.0.implementation.to_string().cmp(&b.0.implementation.to_string()),
                 SortColumn::CValue => a.0.c_value.cmp(&b.0.c_value),
                 SortColumn::BlockSize => format!("{:?}", a.0.ldpc_info_size).cmp(&format!("{:?}", b.0.ldpc_info_size)),
                 SortColumn::Rate => format!("{:?}", a.0.ldpc_rate).cmp(&format!("{:?}", b.0.ldpc_rate)),
@@ -251,14 +255,17 @@ impl SummaryTab {
                 SortColumn::Median => a.1.median.cmp(&b.1.median),
                 SortColumn::StdDev => a.1.std_dev.cmp(&b.1.std_dev),
                 SortColumn::Throughput => {
-                    let t_a = summary.deal_stats.get(&a.0).and_then(|s| s.throughput.as_ref()).map(|t| t.shares_per_second).unwrap_or(0.0);
-                    let t_b = summary.deal_stats.get(&b.0).and_then(|s| s.throughput.as_ref()).map(|t| t.shares_per_second).unwrap_or(0.0);
-                    t_a.partial_cmp(&t_b).unwrap_or(Ordering::Equal)
+                    let throughput = |p: &BenchmarkParams| {
+                        summary.deal_stats.get(p)
+                            .and_then(|s| s.throughput.as_ref())
+                            .map_or(0.0, |t| t.shares_per_second)
+                    };
+                    throughput(&a.0).partial_cmp(&throughput(&b.0)).unwrap_or(std::cmp::Ordering::Equal)
                 },
-                SortColumn::SuccessRate => a.1.success_rate.partial_cmp(&b.1.success_rate).unwrap_or(Ordering::Equal),
+                SortColumn::SuccessRate => a.1.success_rate.partial_cmp(&b.1.success_rate).unwrap_or(std::cmp::Ordering::Equal),
             };
             
-            match direction {
+            match sort_direction {
                 SortDirection::Ascending => cmp,
                 SortDirection::Descending => cmp.reverse(),
             }

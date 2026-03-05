@@ -1,15 +1,15 @@
-use ldpc_toolbox::codes::ccsds::{AR4JACode, AR4JARate, AR4JAInfoSize};
+use ldpc_toolbox::codes::ccsds::{AR4JACode, AR4JAInfoSize, AR4JARate};
+use ldpc_toolbox::decoder::factory::{DecoderFactory, DecoderImplementation};
 use ldpc_toolbox::encoder::Encoder;
 use ldpc_toolbox::gf2::GF2;
+use ldpc_toolbox::sparse::SparseMatrix;
 use ndarray::Array1;
 use num_traits::One;
 use crate::code::{AdditiveCode, DecodeResult};
-use crate::types::CodeInitParams;
-use ldpc_toolbox::decoder::factory::{DecoderFactory, DecoderImplementation};
-use ldpc_toolbox::decoder::factory::DecoderImplementation::Aminstarf32;
+use crate::types::{CodeInitParams, info_bits};
 
 pub struct LdpcCode {
-    code: AR4JACode,
+    h: SparseMatrix,
     encoder: Encoder,
     arithmetic: DecoderImplementation,
     max_iterations: usize,
@@ -22,29 +22,18 @@ impl AdditiveCode for LdpcCode {
     fn setup(params: CodeInitParams) -> Self {
         let rate = params.ldpc_rate.unwrap_or(AR4JARate::R4_5);
         let info_size = params.ldpc_info_size.unwrap_or(AR4JAInfoSize::K1024);
-        let arithmetic = params.decoder_type.unwrap_or(Aminstarf32);
+        let arithmetic = params.decoder_type.unwrap_or(DecoderImplementation::Aminstarf32);
         let max_iterations = params.max_iterations.unwrap_or(300);
         let llr_value = params.llr_value.unwrap_or(1.3863);
         let h = AR4JACode::new(rate, info_size).h();
-        let input_length = match (rate, info_size) {
-            (AR4JARate::R1_2, AR4JAInfoSize::K1024) => 1024,
-            (AR4JARate::R2_3, AR4JAInfoSize::K1024) => 1024,
-            (AR4JARate::R4_5, AR4JAInfoSize::K1024) => 1024,
-            (AR4JARate::R1_2, AR4JAInfoSize::K4096) => 4096,
-            (AR4JARate::R2_3, AR4JAInfoSize::K4096) => 4096,
-            (AR4JARate::R4_5, AR4JAInfoSize::K4096) => 4096,
-            (AR4JARate::R1_2, AR4JAInfoSize::K16384) => 16384,
-            (AR4JARate::R2_3, AR4JAInfoSize::K16384) => 16384,
-            (AR4JARate::R4_5, AR4JAInfoSize::K16384) => 16384,
-        };
+        let input_length = info_bits(info_size);
         let output_length = h.num_cols();
-        let code = AR4JACode::new(rate, info_size);
         let encoder = Encoder::from_h(&h).unwrap();
 
-        LdpcCode { 
-            code, 
-            encoder, 
-            arithmetic, 
+        LdpcCode {
+            h,
+            encoder,
+            arithmetic,
             max_iterations,
             llr_value,
             input_length,
@@ -61,12 +50,12 @@ impl AdditiveCode for LdpcCode {
             "Input length ({}) must match present_positions length ({})",
             input.len(), present_positions.len());
 
-        let message: Vec<f64> = input
+        let llr_values: Vec<f64> = input
             .iter()
             .zip(present_positions.iter())
             .map(|(&elem, &is_present)| {
                 if !is_present {
-                    0.0 // LLR = 0 for erased bits (complete uncertainty)
+                    0.0 // erased bit: full uncertainty
                 } else if elem.is_one() {
                     -self.llr_value
                 } else {
@@ -74,9 +63,9 @@ impl AdditiveCode for LdpcCode {
                 }
             })
             .collect();
-        
-        let mut decoder = self.arithmetic.build_decoder(self.code.h());
-        match decoder.decode(message.as_slice(), self.max_iterations) {
+
+        let mut decoder = self.arithmetic.build_decoder(self.h.clone());
+        match decoder.decode(llr_values.as_slice(), self.max_iterations) {
             Ok(output) => DecodeResult::from_decoder_output(output, true),
             Err(output) => DecodeResult::from_decoder_output(output, false),
         }
@@ -178,7 +167,7 @@ mod tests {
         for i in (0..100).step_by(10) {
             message_vec[i] = GF2::one();
         }
-        let message = Array1::from(message_vec.clone());
+        let message = Array1::from(message_vec);
         
         let encoded = code.encode(&message);
         

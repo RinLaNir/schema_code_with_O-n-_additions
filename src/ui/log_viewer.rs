@@ -71,109 +71,50 @@ impl LogViewer {
                     LogLevel::Progress => self.progress_enabled,
                 };
                 
-                let text_match = if self.filter_text.is_empty() {
-                    true
-                } else {
-                    msg.message.to_lowercase().contains(&self.filter_text.to_lowercase())
-                };
-                
+                let text_match = self.filter_text.is_empty()
+                    || msg.message.to_lowercase().contains(&self.filter_text.to_lowercase());
+
                 level_match && text_match
             })
             .collect();
-        
-        self.show_messages_filtered(ui, &filtered_messages, row_height);
+
+        self.render_messages(ui, &filtered_messages, row_height);
     }
 
-    fn show_messages_filtered(&mut self, ui: &mut egui::Ui, messages: &[&LogMessage], height: f32) {
+    fn render_messages(&mut self, ui: &mut egui::Ui, messages: &[&LogMessage], height: f32) {
         let scroll_to_bottom = self.autoscroll && !messages.is_empty();
-        
+
         ScrollArea::vertical()
             .auto_shrink([false, false])
             .stick_to_bottom(scroll_to_bottom)
-            .show_rows(
-                ui,
-                height,
-                messages.len(),
-                |ui, row_range| {
-                    for row_idx in row_range {
-                        if let Some(msg) = messages.get(row_idx) {
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new(format!("[{}]", msg.formatted_timestamp()))
-                                    .color(Color32::GRAY));
-                                
-                                let (level_tag, level_color) = match msg.level {
-                                    LogLevel::Info => ("[INFO]", Color32::LIGHT_BLUE),
-                                    LogLevel::Warning => ("[WARN]", Color32::GOLD),
-                                    LogLevel::Error => ("[ERROR]", Color32::RED),
-                                    LogLevel::Success => ("[SUCCESS]", Color32::GREEN),
-                                    LogLevel::Progress => ("[PROGRESS]", Color32::LIGHT_GREEN),
-                                };
-                                
-                                ui.label(RichText::new(level_tag).color(level_color));
-                                
-                                let message_color = match msg.level {
-                                    LogLevel::Error => Color32::LIGHT_RED,
-                                    LogLevel::Warning => Color32::LIGHT_YELLOW,
-                                    LogLevel::Success => Color32::LIGHT_GREEN,
-                                    _ => Color32::WHITE,
-                                };
-                                
-                                ui.label(RichText::new(&msg.message).color(message_color));
-                            });
-                        }
+            .show_rows(ui, height, messages.len(), |ui, row_range| {
+                for row_idx in row_range {
+                    if let Some(msg) = messages.get(row_idx) {
+                        let (tag, tag_color, msg_color) = level_display(msg.level);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("[{}]", msg.formatted_timestamp()))
+                                    .color(Color32::GRAY),
+                            );
+                            ui.label(RichText::new(tag).color(tag_color));
+                            ui.label(RichText::new(&msg.message).color(msg_color));
+                        });
                     }
-                },
-            );
-        
+                }
+            });
+
         if scroll_to_bottom {
             ui.ctx().request_repaint();
         }
     }
+}
 
-    #[allow(dead_code)]
-    fn show_messages(&mut self, ui: &mut egui::Ui, messages: &[LogMessage], height: f32) {
-        let scroll_to_bottom = self.autoscroll && !messages.is_empty();
-        
-        ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .stick_to_bottom(scroll_to_bottom)
-            .show_rows(
-                ui,
-                height,
-                messages.len(),
-                |ui, row_range| {
-                    for row_idx in row_range {
-                        if let Some(msg) = messages.get(row_idx) {
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new(format!("[{}]", msg.formatted_timestamp()))
-                                    .color(Color32::GRAY));
-                                
-                                let (level_tag, level_color) = match msg.level {
-                                    LogLevel::Info => ("[INFO]", Color32::LIGHT_BLUE),
-                                    LogLevel::Warning => ("[WARN]", Color32::GOLD),
-                                    LogLevel::Error => ("[ERROR]", Color32::RED),
-                                    LogLevel::Success => ("[SUCCESS]", Color32::GREEN),
-                                    LogLevel::Progress => ("[PROGRESS]", Color32::LIGHT_GREEN),
-                                };
-                                
-                                ui.label(RichText::new(level_tag).color(level_color));
-                                
-                                let message_color = match msg.level {
-                                    LogLevel::Error => Color32::LIGHT_RED,
-                                    LogLevel::Warning => Color32::LIGHT_YELLOW,
-                                    LogLevel::Success => Color32::LIGHT_GREEN,
-                                    _ => Color32::WHITE,
-                                };
-                                
-                                ui.label(RichText::new(&msg.message).color(message_color));
-                            });
-                        }
-                    }
-                },
-            );
-        
-        if scroll_to_bottom {
-            ui.ctx().request_repaint();
-        }
+fn level_display(level: LogLevel) -> (&'static str, Color32, Color32) {
+    match level {
+        LogLevel::Info => ("[INFO]", Color32::LIGHT_BLUE, Color32::WHITE),
+        LogLevel::Warning => ("[WARN]", Color32::GOLD, Color32::LIGHT_YELLOW),
+        LogLevel::Error => ("[ERROR]", Color32::RED, Color32::LIGHT_RED),
+        LogLevel::Success => ("[SUCCESS]", Color32::GREEN, Color32::LIGHT_GREEN),
+        LogLevel::Progress => ("[PROGRESS]", Color32::LIGHT_GREEN, Color32::WHITE),
     }
 }

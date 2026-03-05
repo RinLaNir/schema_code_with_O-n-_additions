@@ -6,20 +6,9 @@
 use ark_bls12_381::Fr;
 
 use schema_code::types::CodeInitParams;
+use schema_code::utils::remove_random_shares;
 use schema_code::aos;
 use schema_code::aos_parallel;
-
-fn remove_random_shares(shares: &mut Vec<schema_code::types::Share>, count: usize) {
-    use rand::RngExt;
-    let mut rng = rand::rng();
-    for _ in 0..count {
-        if shares.is_empty() {
-            break;
-        }
-        let idx = rng.random_range(0..shares.len());
-        shares.swap_remove(idx);
-    }
-}
 
 fn default_test_params() -> CodeInitParams {
     use ldpc_toolbox::codes::ccsds::{AR4JARate, AR4JAInfoSize};
@@ -55,7 +44,7 @@ mod sequential_tests {
         let secret = Fr::from(12345u64);
         let mut shares = aos::deal(&pp, secret);
 
-        let shares_to_remove = 50;
+        let shares_to_remove: isize = 50;
         remove_random_shares(&mut shares.shares, shares_to_remove);
 
         let (reconstructed, _metrics) = aos::reconstruct(&pp, &shares);
@@ -106,7 +95,7 @@ mod parallel_tests {
         let secret = Fr::from(12345u64);
         let mut shares = aos_parallel::deal(&pp, secret);
 
-        let shares_to_remove = 50;
+        let shares_to_remove: isize = 50;
         remove_random_shares(&mut shares.shares, shares_to_remove);
 
         let (reconstructed, _metrics) = aos_parallel::reconstruct(&pp, &shares);

@@ -1,10 +1,10 @@
 use eframe::egui::{self, RichText, ScrollArea, Ui};
 use std::collections::HashMap;
 use std::time::Duration;
-use crate::benchmark::{BenchmarkSummary, BenchmarkParams, BenchmarkStats, Implementation};
+use crate::benchmark::{BenchmarkSummary, BenchmarkParams, BenchmarkStats};
 use crate::ui::localization::Localization;
 use crate::ui::constants::{self, heading_size};
-use super::utils::format_duration;
+use super::utils::{format_duration, compare_benchmark_params};
 use super::table_builder::{ResultsTable, phase_detail_columns};
 
 fn draw_duration_with_bar(ui: &mut Ui, duration: Duration, min_duration: Duration, max_duration: Duration) {
@@ -17,17 +17,13 @@ fn draw_duration_with_bar(ui: &mut Ui, duration: Duration, min_duration: Duratio
         0.5
     };
     
-    let cell_width = constants::DATA_BAR_WIDTH;
-    let cell_height = constants::DATA_BAR_HEIGHT;
-    let corner_radius = constants::DATA_BAR_CORNER_RADIUS;
-    
-    let desired_size = egui::vec2(cell_width, cell_height);
+    let desired_size = egui::vec2(constants::DATA_BAR_WIDTH, constants::DATA_BAR_HEIGHT);
     let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
     
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         
-        painter.rect_filled(rect, corner_radius, constants::data_bar_bg(ui));
+        painter.rect_filled(rect, constants::DATA_BAR_CORNER_RADIUS, constants::data_bar_bg(ui));
         
         let bar_width = rect.width() * percentage as f32;
         if bar_width > 0.5 {
@@ -35,11 +31,10 @@ fn draw_duration_with_bar(ui: &mut Ui, duration: Duration, min_duration: Duratio
                 rect.min,
                 egui::vec2(bar_width, rect.height())
             );
-            let bar_color = constants::data_bar_gradient(ui, percentage);
-            painter.rect_filled(bar_rect, corner_radius, bar_color);
+            painter.rect_filled(bar_rect, constants::DATA_BAR_CORNER_RADIUS, constants::data_bar_gradient(ui, percentage));
         }
         
-        painter.rect_stroke(rect, corner_radius, constants::data_bar_stroke(ui), egui::StrokeKind::Outside);
+        painter.rect_stroke(rect, constants::DATA_BAR_CORNER_RADIUS, constants::data_bar_stroke(ui), egui::StrokeKind::Outside);
         
         let text_pos = rect.right_center() - egui::vec2(constants::DATA_BAR_TEXT_PADDING, 0.0);
         let font_id = egui::FontId::new(
@@ -167,43 +162,19 @@ impl DetailsTab {
         }
         
         let mut entries: Vec<_> = stats.iter().collect();
-        entries.sort_by(|a, b| {
-            let decoder_a = format!("{:?}", a.0.decoder_type);
-            let decoder_b = format!("{:?}", b.0.decoder_type);
-            let decoder_cmp = decoder_a.cmp(&decoder_b);
-            if decoder_cmp != std::cmp::Ordering::Equal {
-                return decoder_cmp;
-            }
-            
-            let rate_a = format!("{:?}", a.0.ldpc_rate);
-            let rate_b = format!("{:?}", b.0.ldpc_rate);
-            let rate_cmp = rate_a.cmp(&rate_b);
-            if rate_cmp != std::cmp::Ordering::Equal {
-                return rate_cmp;
-            }
-            
-            match (a.0.implementation, b.0.implementation) {
-                (Implementation::Sequential, Implementation::Parallel) => std::cmp::Ordering::Less,
-                (Implementation::Parallel, Implementation::Sequential) => std::cmp::Ordering::Greater,
-                _ => std::cmp::Ordering::Equal,
-            }
-        });
+        entries.sort_by(|a, b| compare_benchmark_params(a.0, b.0));
         
-        let (avg_min, avg_max) = entries.iter()
-            .map(|(_, s)| s.avg)
-            .fold((Duration::MAX, Duration::ZERO), |(min, max), d| (min.min(d), max.max(d)));
-        let (min_min, min_max) = entries.iter()
-            .map(|(_, s)| s.min)
-            .fold((Duration::MAX, Duration::ZERO), |(min, max), d| (min.min(d), max.max(d)));
-        let (max_min, max_max) = entries.iter()
-            .map(|(_, s)| s.max)
-            .fold((Duration::MAX, Duration::ZERO), |(min, max), d| (min.min(d), max.max(d)));
-        let (median_min, median_max) = entries.iter()
-            .map(|(_, s)| s.median)
-            .fold((Duration::MAX, Duration::ZERO), |(min, max), d| (min.min(d), max.max(d)));
-        let (std_min, std_max) = entries.iter()
-            .map(|(_, s)| s.std_dev)
-            .fold((Duration::MAX, Duration::ZERO), |(min, max), d| (min.min(d), max.max(d)));
+        let dur_range = |get: fn(&BenchmarkStats) -> Duration| -> (Duration, Duration) {
+            entries.iter()
+                .map(|(_, s)| get(s))
+                .fold((Duration::MAX, Duration::ZERO), |(lo, hi), d| (lo.min(d), hi.max(d)))
+        };
+        
+        let (avg_min, avg_max)    = dur_range(|s| s.avg);
+        let (min_min, min_max)    = dur_range(|s| s.min);
+        let (max_min, max_max)    = dur_range(|s| s.max);
+        let (median_min, median_max) = dur_range(|s| s.median);
+        let (std_min, std_max)    = dur_range(|s| s.std_dev);
         
         let entries_for_table: Vec<_> = entries.iter()
             .map(|(p, s)| ((*p).clone(), (*s).clone()))

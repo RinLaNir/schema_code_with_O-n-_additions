@@ -1,14 +1,13 @@
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use chrono::Local;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogLevel {
     Info,
-    #[allow(dead_code)]
     Warning,
     Error,
     Success,
-    #[allow(dead_code)]
     Progress,
 } 
 
@@ -46,22 +45,22 @@ impl Logger {
         }
     }
 
-    pub fn log(&self, level: LogLevel, message: impl AsRef<str>) {
-        {
-            let mut messages = match self.messages.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    eprintln!("Warning: Logger mutex was poisoned. Recovering...");
-                    poisoned.into_inner()
-                }
-            };
-            
-            messages.push(LogMessage::new(level, message.as_ref().to_string()));
-            
-            if messages.len() > self.max_messages {
-                let to_remove = messages.len() - self.max_messages;
-                messages.drain(0..to_remove);
+    fn lock_messages(&self) -> MutexGuard<'_, Vec<LogMessage>> {
+        match self.messages.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                eprintln!("Warning: Logger mutex was poisoned. Recovering...");
+                poisoned.into_inner()
             }
+        }
+    }
+
+    pub fn log(&self, level: LogLevel, message: impl AsRef<str>) {
+        let mut messages = self.lock_messages();
+        messages.push(LogMessage::new(level, message.as_ref().to_string()));
+        if messages.len() > self.max_messages {
+            let to_remove = messages.len() - self.max_messages;
+            messages.drain(0..to_remove);
         }
     }
 
@@ -69,7 +68,6 @@ impl Logger {
         self.log(LogLevel::Info, message);
     }
 
-    #[allow(dead_code)]
     pub fn warning(&self, message: impl AsRef<str>) {
         self.log(LogLevel::Warning, message);
     }
@@ -88,29 +86,16 @@ impl Logger {
     }
 
     pub fn get_messages(&self) -> Vec<LogMessage> {
-        match self.messages.lock() {
-            Ok(guard) => guard.clone(),
-            Err(poisoned) => {
-                eprintln!("Warning: Logger mutex was poisoned when getting messages. Recovering...");
-                poisoned.into_inner().clone()
-            }
-        }
+        self.lock_messages().clone()
     }
 
     pub fn clear(&self) {
-        if let Ok(mut messages) = self.messages.lock() {
-            messages.clear();
-        } else {
-            eprintln!("Warning: Failed to clear logger due to poisoned mutex");
-        }
+        self.lock_messages().clear();
     }
 }
 
-lazy_static::lazy_static! {
-    static ref GLOBAL_LOGGER: Mutex<Option<Arc<Logger>>> = Mutex::new(None);
-} 
-
-use std::sync::atomic::{AtomicBool, Ordering};
+const DEFAULT_MAX_MESSAGES: usize = 1000;
+static GLOBAL_LOGGER: OnceLock<Arc<Logger>> = OnceLock::new();
 static VERBOSE_MODE: AtomicBool = AtomicBool::new(false);
 static TERMINAL_LOG_MODE: AtomicBool = AtomicBool::new(false);
 
@@ -128,40 +113,21 @@ pub fn set_terminal_log(enabled: bool) {
 
 pub fn is_terminal_log() -> bool {
     TERMINAL_LOG_MODE.load(Ordering::SeqCst)
-} 
+}
 
+/// Initializes the global logger with the given capacity.
+/// The first call wins; subsequent calls are no-ops and return the existing logger.
 pub fn init_logger(max_messages: usize) -> Arc<Logger> {
-    let logger = Arc::new(Logger::new(max_messages));
-    
-    if let Ok(mut global) = GLOBAL_LOGGER.lock() {
-        *global = Some(logger.clone());
-    } else {
-        eprintln!("Warning: Failed to initialize global logger due to lock poisoning");
-    }
-    
-    logger
-} 
+    GLOBAL_LOGGER
+        .get_or_init(|| Arc::new(Logger::new(max_messages)))
+        .clone()
+}
 
 pub fn get_logger() -> Arc<Logger> {
-    if let Ok(global) = GLOBAL_LOGGER.lock() {
-        if let Some(logger) = &*global {
-            return logger.clone();
-        }
-    }
-    
-    if let Ok(mut global) = GLOBAL_LOGGER.lock() {
-        if let Some(logger) = &*global {
-            return logger.clone();
-        } else {
-            let logger = Arc::new(Logger::new(1000));
-            *global = Some(logger.clone());
-            return logger;
-        }
-    } else {
-        eprintln!("Warning: Failed to get/initialize global logger due to lock poisoning. Creating temporary logger.");
-        Arc::new(Logger::new(1000))
-    }
-} 
+    GLOBAL_LOGGER
+        .get_or_init(|| Arc::new(Logger::new(DEFAULT_MAX_MESSAGES)))
+        .clone()
+}
 
 #[macro_export]
 macro_rules! log_info {

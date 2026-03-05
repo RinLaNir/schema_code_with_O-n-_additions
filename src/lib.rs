@@ -1,4 +1,5 @@
 pub mod types;
+pub mod utils;
 pub mod code;
 pub mod aos_core;
 pub mod aos;

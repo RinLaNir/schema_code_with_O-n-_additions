@@ -44,8 +44,8 @@ impl StatusBar {
         self.status_message = message;
     }
     
-    pub fn get_message(&self) -> &Option<String> {
-        &self.status_message
+    pub fn get_message(&self) -> Option<&str> {
+        self.status_message.as_deref()
     }
 
     pub fn set_command_line(&mut self, command: Option<String>) {
@@ -56,27 +56,31 @@ impl StatusBar {
         self.showing_command_line = !self.showing_command_line;
     }
     
+    fn state_color(&self) -> Color32 {
+        match &self.state {
+            BenchmarkState::Running => Color32::from_rgb(0, 128, 255),
+            BenchmarkState::Finished => Color32::from_rgb(0, 180, 0),
+            BenchmarkState::Error(_) => Color32::from_rgb(255, 50, 50),
+            _ => Color32::GRAY,
+        }
+    }
+
     pub fn show(&self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            if self.showing_command_line && self.command_line.is_some() {
-                ui.label(RichText::new(&*self.command_line.as_ref().unwrap()).color(Color32::from_rgb(0, 160, 0)));
-            } else {
-                match &self.status_message {
+            match (self.showing_command_line, &self.command_line) {
+                (true, Some(cmd)) => {
+                    ui.label(RichText::new(cmd.as_str()).color(Color32::from_rgb(0, 160, 0)));
+                }
+                _ => match &self.status_message {
                     Some(message) => {
-                        let color = match self.state {
-                            BenchmarkState::Running => Color32::from_rgb(0, 128, 255),
-                            BenchmarkState::Finished => Color32::from_rgb(0, 180, 0),
-                            BenchmarkState::Error(_) => Color32::from_rgb(255, 50, 50),
-                            _ => Color32::GRAY,
-                        };
-                        ui.label(RichText::new(message).color(color));
-                    },
+                        ui.label(RichText::new(message).color(self.state_color()));
+                    }
                     None => {
                         ui.label(RichText::new(self.localization.get("status_ready")).color(Color32::GRAY));
                     }
-                }
+                },
             }
-            
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let BenchmarkState::Running = self.state {
                     ui.spinner();

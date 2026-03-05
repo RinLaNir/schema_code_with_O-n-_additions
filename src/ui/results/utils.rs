@@ -1,19 +1,35 @@
 use std::time::Duration;
+use std::cmp::Ordering;
 use eframe::egui::{self, Color32, Ui};
 use std::collections::HashMap;
-use crate::benchmark::PhaseStats;
+use crate::benchmark::{BenchmarkParams, PhaseStats, Implementation};
+
+/// Standard comparison for BenchmarkParams entries.
+///
+/// Sorts by decoder type, then rate, then implementation (sequential first).
+/// Uses Debug representation for enum ordering because external ldpc-toolbox
+/// enums (`DecoderImplementation`, `AR4JARate`) don't implement `Ord`.
+pub fn compare_benchmark_params(a: &BenchmarkParams, b: &BenchmarkParams) -> Ordering {
+    format!("{:?}", a.decoder_type)
+        .cmp(&format!("{:?}", b.decoder_type))
+        .then_with(|| format!("{:?}", a.ldpc_rate).cmp(&format!("{:?}", b.ldpc_rate)))
+        .then_with(|| match (a.implementation, b.implementation) {
+            (Implementation::Sequential, Implementation::Parallel) => Ordering::Less,
+            (Implementation::Parallel, Implementation::Sequential) => Ordering::Greater,
+            _ => Ordering::Equal,
+        })
+}
 
 pub fn format_duration(duration: Duration) -> String {
     let total_ms = duration.as_millis();
-    
+    let total_us = duration.as_micros();
+
     if total_ms < 1 {
-        format!("{} μs", duration.as_micros())
+        format!("{} μs", total_us)
     } else if total_ms < 1000 {
-        format!("{}.{:03} ms", total_ms, duration.subsec_micros() % 1000)
+        format!("{}.{:03} ms", total_ms, total_us % 1000)
     } else {
-        let seconds = total_ms / 1000;
-        let ms = total_ms % 1000;
-        format!("{}.{:03} s", seconds, ms)
+        format!("{}.{:03} s", total_ms / 1000, total_ms % 1000)
     }
 }
 
