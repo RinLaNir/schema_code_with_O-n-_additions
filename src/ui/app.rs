@@ -113,6 +113,7 @@ impl BenchmarkApp {
                 config.max_iterations,
                 config.llr_value,
                 cancel_flag,
+                config.removal_seed,
             );
             
             *result.lock().expect("Failed to lock result mutex") = Some(summary);

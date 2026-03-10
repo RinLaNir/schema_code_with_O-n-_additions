@@ -73,6 +73,7 @@ fn print_help() {
     println!("                      (Aminstarf32, Phif64, Tanhf32, etc. or 'all' for all types)");
     println!("  --shares=N1,N2,...   Comma-separated list of shares_to_remove values");
     println!("                      (positive = absolute count, negative = percentage)");
+    println!("  --seed=N            Seed for deterministic share removal (reproducible erasure pattern)");
     println!("  --output            Save results to JSON file with auto-generated name");
     println!("  --output=FILE       Save results to JSON file (FILE.json)");
     println!("  --no-cache          Disable setup caching (run setup per each iteration)");
@@ -99,6 +100,7 @@ fn parse_benchmark_args(args: &[String]) -> CliConfig {
     let mut secret_value: u128 = 42;
     let mut max_iterations: usize = 500;
     let mut llr_value: f64 = 10.0;
+    let mut removal_seed: Option<u64> = None;
 
     for arg in args {
         if let Some(val) = arg.strip_prefix("--runs=") {
@@ -171,6 +173,10 @@ fn parse_benchmark_args(args: &[String]) -> CliConfig {
                     decoder_types = specified;
                 }
             }
+        } else if let Some(val) = arg.strip_prefix("--seed=") {
+            if let Ok(seed) = val.parse::<u64>() {
+                removal_seed = Some(seed);
+            }
         }
     }
 
@@ -189,6 +195,7 @@ fn parse_benchmark_args(args: &[String]) -> CliConfig {
         secret_value,
         max_iterations,
         llr_value,
+        removal_seed,
     }
 }
 
@@ -211,5 +218,6 @@ fn run_benchmarks(args: &[String]) {
         cfg.secret_value,
         cfg.max_iterations,
         cfg.llr_value,
+        cfg.removal_seed,
     );
 }

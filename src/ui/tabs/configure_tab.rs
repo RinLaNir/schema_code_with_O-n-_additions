@@ -37,6 +37,9 @@ pub struct ConfigureTab {
     secret_seed: String,
     secret_valid: bool,
     
+    removal_seed_enabled: bool,
+    removal_seed_text: String,
+    
     command_line_display: Option<String>,
 }
 
@@ -64,6 +67,9 @@ impl ConfigureTab {
             secret_random: config.secret_random,
             secret_seed: config.secret_seed.map_or(String::new(), |s| s.to_string()),
             secret_valid: true,
+            
+            removal_seed_enabled: config.removal_seed_enabled,
+            removal_seed_text: config.removal_seed.map_or(String::new(), |s| s.to_string()),
             
             command_line_display: None,
         }
@@ -130,6 +136,16 @@ impl ConfigureTab {
                                 ui.add(egui::TextEdit::singleline(&mut self.shares_to_remove_value)
                                     .desired_width(80.0));
                                 ui.checkbox(&mut self.shares_to_remove_as_percentage, self.localization.get("as_percentage"));
+                            });
+
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut self.removal_seed_enabled, self.localization.get("removal_seed_enabled"));
+                                if self.removal_seed_enabled {
+                                    ui.label(self.localization.get("removal_seed"));
+                                    ui.add(egui::TextEdit::singleline(&mut self.removal_seed_text)
+                                        .desired_width(120.0)
+                                        .hint_text(self.localization.get("removal_seed_hint")));
+                                }
                             });
 
                             self.sync_shares_config();
@@ -484,6 +500,13 @@ impl ConfigureTab {
         }
         
         self.config.decoder_types = self.decoder_selector.get_selected_decoders();
+
+        self.config.removal_seed_enabled = self.removal_seed_enabled;
+        if self.removal_seed_enabled {
+            self.config.removal_seed = self.removal_seed_text.parse::<u64>().ok();
+        } else {
+            self.config.removal_seed = None;
+        }
     }
 
     fn sync_shares_config(&mut self) {

@@ -46,6 +46,11 @@ const TRANSLATIONS: &[(&str, &str, &str)] = &[
     ("secret_seed", "Seed:", "Seed:"),
     ("secret_seed_hint", "Optional seed value", "Необов'язкове значення seed"),
 
+    // Removal seed
+    ("removal_seed_enabled", "Fixed removal seed", "Фіксований seed видалення"),
+    ("removal_seed",         "Seed:",              "Seed:"),
+    ("removal_seed_hint",    "Deterministic share removal", "Детерміноване видалення шарів"),
+
     // Code parameters
     ("code_params", "Code Parameters", "Параметри коду"),
     ("select_decoders", "Select decoders", "Виберіть декодери"),

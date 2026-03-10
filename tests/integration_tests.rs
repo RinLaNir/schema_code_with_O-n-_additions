@@ -45,7 +45,7 @@ mod sequential_tests {
         let mut shares = aos::deal(&pp, secret);
 
         let shares_to_remove: isize = 50;
-        remove_random_shares(&mut shares.shares, shares_to_remove);
+        remove_random_shares(&mut shares.shares, shares_to_remove, None);
 
         let (reconstructed, _metrics) = aos::reconstruct(&pp, &shares);
 
@@ -96,7 +96,7 @@ mod parallel_tests {
         let mut shares = aos_parallel::deal(&pp, secret);
 
         let shares_to_remove: isize = 50;
-        remove_random_shares(&mut shares.shares, shares_to_remove);
+        remove_random_shares(&mut shares.shares, shares_to_remove, None);
 
         let (reconstructed, _metrics) = aos_parallel::reconstruct(&pp, &shares);
 
