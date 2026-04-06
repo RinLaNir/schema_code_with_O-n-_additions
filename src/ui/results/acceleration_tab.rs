@@ -1,14 +1,16 @@
 use eframe::egui::{self, RichText, ScrollArea, Ui};
-use crate::benchmark::{BenchmarkSummary, BenchmarkParams, Implementation};
-use crate::ui::localization::Localization;
-use crate::ui::constants::{self, heading_size, small_size};
-use super::utils::format_duration;
-use super::table_builder::{ResultsTable, TableColumn};
 use std::collections::{HashMap, HashSet};
+
+use crate::benchmark::{BenchmarkParams, BenchmarkSummary, Implementation};
+use crate::ui::constants::{self, heading_size, small_size};
+use crate::ui::localization::Localization;
+
+use super::table_builder::{ResultsTable, TableColumn};
+use super::utils::format_duration;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct ConfigKey {
-    c_value: usize,
+    secret_bits: usize,
     ldpc_info_size: String,
     ldpc_rate: String,
     decoder_type: String,
@@ -17,15 +19,18 @@ struct ConfigKey {
 impl ConfigKey {
     fn from_params(params: &BenchmarkParams) -> Self {
         Self {
-            c_value: params.c_value,
+            secret_bits: params.secret.bit_len,
             ldpc_info_size: format!("{:?}", params.ldpc_info_size),
             ldpc_rate: format!("{:?}", params.ldpc_rate),
             decoder_type: format!("{:?}", params.decoder_type),
         }
     }
-    
+
     fn display_label(&self) -> String {
-        format!("C{} {} {} {}", self.c_value, self.ldpc_rate, self.ldpc_info_size, self.decoder_type)
+        format!(
+            "ell={} {} {} {}",
+            self.secret_bits, self.ldpc_rate, self.ldpc_info_size, self.decoder_type
+        )
     }
 }
 
@@ -59,37 +64,35 @@ impl AccelerationTab {
             show_all: true,
         }
     }
-    
+
     pub fn update_localization(&mut self, localization: &Localization) {
         self.localization = localization.clone();
     }
-    
+
     pub fn update_with_summary(&mut self, summary: &BenchmarkSummary) {
         let mut configs: HashSet<ConfigKey> = HashSet::new();
         for params in summary.total_stats.keys() {
             configs.insert(ConfigKey::from_params(params));
         }
-        
+
         let mut configs_vec: Vec<_> = configs.into_iter().collect();
         configs_vec.sort_by(|a, b| {
-            a.decoder_type.cmp(&b.decoder_type)
+            a.decoder_type
+                .cmp(&b.decoder_type)
                 .then_with(|| a.ldpc_rate.cmp(&b.ldpc_rate))
-                .then_with(|| a.c_value.cmp(&b.c_value))
+                .then_with(|| a.secret_bits.cmp(&b.secret_bits))
         });
-        
+
         self.all_configs = configs_vec;
         self.summary = Some(summary.clone());
-        
         self.show_all = true;
         self.selected_configs.clear();
     }
-    
+
     pub fn show(&mut self, ui: &mut Ui) {
-        // Extract data from summary in a scoped borrow to avoid conflicts with
-        // mutable self access in the ScrollArea closure below.
         let (has_both_impls, speedup_data) = {
             let summary = match self.summary.as_ref() {
-                Some(s) => s,
+                Some(summary) => summary,
                 None => return,
             };
 
@@ -113,40 +116,51 @@ impl AccelerationTab {
 
             (has_sequential && has_parallel, speedup)
         };
-        
+
         if !has_both_impls {
             ui.vertical_centered(|ui| {
                 ui.add_space(constants::SECTION_SPACING);
-                ui.label(RichText::new(self.localization.get("acceleration_no_comparison"))
-                    .color(egui::Color32::LIGHT_YELLOW));
+                ui.label(
+                    RichText::new(self.localization.get("acceleration_no_comparison"))
+                        .color(egui::Color32::LIGHT_YELLOW),
+                );
             });
             return;
         }
-        
+
         ScrollArea::both().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.set_min_width(180.0);
-                    ui.set_max_width(200.0);
-                    
-                    ui.heading(RichText::new(self.localization.get("config_filter")).size(heading_size(ui)));
+                    ui.set_max_width(220.0);
+
+                    ui.heading(
+                        RichText::new(self.localization.get("config_filter"))
+                            .size(heading_size(ui)),
+                    );
                     ui.add_space(constants::SMALL_SPACING);
-                    
+
                     let all_label = self.localization.get("filter_all");
-                    if ui.selectable_label(self.show_all, RichText::new(all_label).strong()).clicked() {
+                    if ui
+                        .selectable_label(self.show_all, RichText::new(all_label).strong())
+                        .clicked()
+                    {
                         self.show_all = true;
                         self.selected_configs.clear();
                     }
-                    
+
                     ui.add_space(constants::SMALL_SPACING);
                     ui.separator();
                     ui.add_space(constants::SMALL_SPACING);
-                    
-                    for config in self.all_configs.iter() {
+
+                    for config in &self.all_configs {
                         let is_selected = self.selected_configs.contains(config);
                         let label = config.display_label();
-                        
-                        if ui.selectable_label(is_selected && !self.show_all, &label).clicked() {
+
+                        if ui
+                            .selectable_label(is_selected && !self.show_all, &label)
+                            .clicked()
+                        {
                             self.show_all = false;
                             if is_selected {
                                 self.selected_configs.remove(config);
@@ -159,25 +173,31 @@ impl AccelerationTab {
                         }
                     }
                 });
-                
+
                 ui.add_space(constants::ITEM_SPACING);
-                
+
                 ui.vertical(|ui| {
-                    ui.heading(RichText::new(self.localization.get("speedup_info_title")).size(heading_size(ui)));
+                    ui.heading(
+                        RichText::new(self.localization.get("speedup_info_title"))
+                            .size(heading_size(ui)),
+                    );
                     ui.add_space(constants::SMALL_SPACING);
-                    
+
                     let filtered_data: Vec<_> = if self.show_all {
                         speedup_data.clone()
                     } else {
-                        speedup_data.iter()
+                        speedup_data
+                            .iter()
                             .filter(|entry| self.selected_configs.contains(&entry.config))
                             .cloned()
                             .collect()
                     };
-                    
+
                     if filtered_data.is_empty() {
-                        ui.label(RichText::new(self.localization.get("no_data_selected"))
-                            .color(egui::Color32::LIGHT_YELLOW));
+                        ui.label(
+                            RichText::new(self.localization.get("no_data_selected"))
+                                .color(egui::Color32::LIGHT_YELLOW),
+                        );
                     } else {
                         self.show_comparison_table(ui, &filtered_data);
                     }
@@ -185,17 +205,21 @@ impl AccelerationTab {
             });
         });
     }
-    
+
     fn calculate_speedup_data(&self, summary: &BenchmarkSummary) -> Vec<SpeedupEntry> {
         let thread_count = rayon::current_num_threads();
 
-        let seq_map: HashMap<ConfigKey, _> = summary.total_stats.iter()
-            .filter(|(p, _)| matches!(p.implementation, Implementation::Sequential))
-            .map(|(p, s)| (ConfigKey::from_params(p), s))
+        let seq_map: HashMap<ConfigKey, _> = summary
+            .total_stats
+            .iter()
+            .filter(|(params, _)| matches!(params.implementation, Implementation::Sequential))
+            .map(|(params, stats)| (ConfigKey::from_params(params), stats))
             .collect();
 
-        let mut speedup_data: Vec<SpeedupEntry> = summary.total_stats.iter()
-            .filter(|(p, _)| matches!(p.implementation, Implementation::Parallel))
+        let mut speedup_data: Vec<SpeedupEntry> = summary
+            .total_stats
+            .iter()
+            .filter(|(params, _)| matches!(params.implementation, Implementation::Parallel))
             .filter_map(|(par_params, par_stats)| {
                 let config = ConfigKey::from_params(par_params);
                 let seq_stats = seq_map.get(&config)?;
@@ -213,17 +237,19 @@ impl AccelerationTab {
             .collect();
 
         speedup_data.sort_by(|a, b| {
-            a.config.decoder_type.cmp(&b.config.decoder_type)
+            a.config
+                .decoder_type
+                .cmp(&b.config.decoder_type)
                 .then_with(|| a.config.ldpc_rate.cmp(&b.config.ldpc_rate))
-                .then_with(|| a.config.c_value.cmp(&b.config.c_value))
+                .then_with(|| a.config.secret_bits.cmp(&b.config.secret_bits))
         });
 
         speedup_data
     }
-    
+
     fn show_comparison_table(&self, ui: &mut Ui, data: &[SpeedupEntry]) {
         let columns = vec![
-            TableColumn::new(self.localization.get("col_config")).with_min_width(180.0),
+            TableColumn::new(self.localization.get("col_config")).with_min_width(220.0),
             TableColumn::new(self.localization.get("label_sequential")).with_min_width(100.0),
             TableColumn::new(self.localization.get("label_parallel")).with_min_width(100.0),
             TableColumn::new(self.localization.get("label_speedup")).with_min_width(80.0),
@@ -231,47 +257,52 @@ impl AccelerationTab {
             TableColumn::new(self.localization.get("parallel_efficiency")).with_min_width(100.0),
             TableColumn::new(self.localization.get("thread_count")).with_min_width(80.0),
         ];
-        
-        ResultsTable::new("acceleration_comparison_table", columns)
-            .show(ui, data.len(), |row_idx, row| {
+
+        ResultsTable::new("acceleration_comparison_table", columns).show(
+            ui,
+            data.len(),
+            |row_idx, row| {
                 let entry = &data[row_idx];
 
                 row.col(|ui| {
                     ui.label(RichText::new(entry.config.display_label()).size(small_size(ui)));
                 });
-                
                 row.col(|ui| {
-                    ui.label(RichText::new(format_duration(entry.seq_time))
-                        .color(constants::sequential_color()));
+                    ui.label(
+                        RichText::new(format_duration(entry.seq_time))
+                            .color(constants::sequential_color()),
+                    );
                 });
-                
                 row.col(|ui| {
-                    ui.label(RichText::new(format_duration(entry.par_time))
-                        .color(constants::parallel_color()));
+                    ui.label(
+                        RichText::new(format_duration(entry.par_time))
+                            .color(constants::parallel_color()),
+                    );
                 });
-                
-                row.col(|ui| {
-                    let speedup_color = constants::speedup_color(ui, entry.speedup);
-                    ui.label(RichText::new(format!("{:.2}x", entry.speedup))
-                        .color(speedup_color)
-                        .strong());
-                });
-                
                 row.col(|ui| {
                     let speedup_color = constants::speedup_color(ui, entry.speedup);
-                    ui.label(RichText::new(format!("{:.0}%", entry.percent_faster))
-                        .color(speedup_color));
+                    ui.label(
+                        RichText::new(format!("{:.2}x", entry.speedup))
+                            .color(speedup_color)
+                            .strong(),
+                    );
                 });
-                
+                row.col(|ui| {
+                    let speedup_color = constants::speedup_color(ui, entry.speedup);
+                    ui.label(
+                        RichText::new(format!("{:.0}%", entry.percent_faster)).color(speedup_color),
+                    );
+                });
                 row.col(|ui| {
                     let efficiency_color = constants::efficiency_color(ui, entry.efficiency);
-                    ui.label(RichText::new(format!("{:.1}%", entry.efficiency))
-                        .color(efficiency_color));
+                    ui.label(
+                        RichText::new(format!("{:.1}%", entry.efficiency)).color(efficiency_color),
+                    );
                 });
-                
                 row.col(|ui| {
                     ui.label(format!("{}", entry.thread_count));
                 });
-            });
+            },
+        );
     }
 }

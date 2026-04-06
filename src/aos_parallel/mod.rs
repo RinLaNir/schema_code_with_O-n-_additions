@@ -1,66 +1,56 @@
 //! Parallel implementation of secret sharing operations using Rayon.
-//! 
-//! This module provides a multi-threaded implementation optimized for
-//! larger datasets utilizing all available CPU cores.
 
-use ark_ff::{PrimeField, BigInteger, BigInt};
 use ldpc_toolbox::gf2::GF2;
 use ndarray::{Array1, Array2};
 use num_traits::{One, Zero};
+use rayon::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use rayon::prelude::*;
 
-use crate::types::{SecretParams, Shares, CodeInitParams, ReconstructMetrics, DecodingStats};
-use crate::code::AdditiveCode;
+use crate::aos_core::{self, codeword_to_gf2_buf, ExecutionStrategy};
 use crate::code::ldpc_impl::LdpcCode;
-use crate::aos_core::{self, ExecutionStrategy, codeword_to_gf2_buf, column_to_field_element};
+use crate::code::AdditiveCode;
+use crate::types::{
+    CodeInitParams, DecodingStats, F2PowElement, ReconstructMetrics, SecretParams, Shares,
+};
 
-/// Parallel execution strategy marker type using Rayon.
 pub struct ParallelStrategy;
 
 impl ExecutionStrategy for ParallelStrategy {
-    fn generate_random_vec<F: PrimeField>(len: usize) -> Vec<F> {
+    fn generate_random_columns(len: usize, bit_len: usize) -> Vec<F2PowElement> {
         (0..len)
             .into_par_iter()
             .map(|_| {
-                let mut thread_rng = ark_std::rand::thread_rng();
-                F::rand(&mut thread_rng)
+                let mut rng = rand::rng();
+                F2PowElement::random(bit_len, &mut rng)
             })
             .collect()
     }
 
-    fn dot_product<F: PrimeField>(a: &[F], b: &[F]) -> F {
-        aos_core::dot_product_adaptive(a, b)
-    }
-
-    fn create_message_matrix<F: PrimeField>(
-        r_vec: &[F],
-        nrows: usize,
-        ncols: usize,
-    ) -> Array2<GF2> {
+    fn create_message_matrix(columns: &[F2PowElement], nrows: usize, ncols: usize) -> Array2<GF2> {
         let columns: Vec<Vec<GF2>> = (0..ncols)
             .into_par_iter()
-            .map(|i| {
-                let val_int = r_vec[i].into_bigint();
-                let mut bits: Vec<bool> = val_int.to_bits_le();
-                bits.resize(nrows, false);
-
-                bits.iter()
-                    .map(|&b| if b { GF2::one() } else { GF2::zero() })
+            .map(|col_idx| {
+                (0..nrows)
+                    .map(|row_idx| {
+                        if columns[col_idx].bit(row_idx) {
+                            GF2::one()
+                        } else {
+                            GF2::zero()
+                        }
+                    })
                     .collect()
             })
             .collect();
 
-        // Transpose columns to row-major flat buffer — avoids from_shape_fn random access
-        let mut flat: Vec<GF2> = Vec::with_capacity(nrows * ncols);
-        for r in 0..nrows {
-            for col in columns.iter() {
-                flat.push(col[r]);
+        let mut flat = Vec::with_capacity(nrows * ncols);
+        for row_idx in 0..nrows {
+            for column in &columns {
+                flat.push(column[row_idx]);
             }
         }
-        Array2::from_shape_vec((nrows, ncols), flat)
-            .expect("Message matrix shape mismatch")
+
+        Array2::from_shape_vec((nrows, ncols), flat).expect("message matrix shape mismatch")
     }
 
     fn encode_rows(
@@ -71,19 +61,15 @@ impl ExecutionStrategy for ParallelStrategy {
     ) -> Array2<GF2> {
         let encoded_rows: Vec<Array1<GF2>> = (0..nrows)
             .into_par_iter()
-            .map(|i| {
-                let row = message_matrix.row(i).to_owned();
-                code_impl.encode(&row)
-            })
+            .map(|row_idx| code_impl.encode(&message_matrix.row(row_idx).to_owned()))
             .collect();
 
-        let mut flat: Vec<GF2> = Vec::with_capacity(nrows * output_cols);
+        let mut flat = Vec::with_capacity(nrows * output_cols);
         for row in &encoded_rows {
             flat.extend(row.iter().copied());
         }
-        
-        Array2::from_shape_vec((nrows, output_cols), flat)
-            .expect("Encoded matrix shape mismatch")
+
+        Array2::from_shape_vec((nrows, output_cols), flat).expect("encoded matrix shape mismatch")
     }
 
     fn decode_rows(
@@ -101,8 +87,8 @@ impl ExecutionStrategy for ParallelStrategy {
 
         let decoded_rows: Vec<(usize, Option<Vec<GF2>>)> = (0..nrows)
             .into_par_iter()
-            .map(|i| {
-                let row_input = encoded_matrix.row(i).to_owned();
+            .map(|row_idx| {
+                let row_input = encoded_matrix.row(row_idx).to_owned();
                 let decode_result = code_impl.decode(&row_input, present_columns);
 
                 total_iterations.fetch_add(decode_result.iterations, Ordering::Relaxed);
@@ -114,15 +100,15 @@ impl ExecutionStrategy for ParallelStrategy {
                     successful_rows.fetch_add(1, Ordering::Relaxed);
                     let mut gf2_buf = vec![GF2::zero(); input_length];
                     codeword_to_gf2_buf(&decode_result.codeword, &mut gf2_buf, input_length);
-                    (i, Some(gf2_buf))
+                    (row_idx, Some(gf2_buf))
                 } else {
                     failed_rows.fetch_add(1, Ordering::Relaxed);
-                    (i, None)
+                    (row_idx, None)
                 }
             })
             .collect();
 
-        let mut decoded_storage: Vec<GF2> = vec![GF2::zero(); nrows * input_length];
+        let mut decoded_storage = vec![GF2::zero(); nrows * input_length];
         for (row_idx, row_data) in &decoded_rows {
             if let Some(buf) = row_data {
                 let row_start = row_idx * input_length;
@@ -131,49 +117,54 @@ impl ExecutionStrategy for ParallelStrategy {
         }
 
         let decoded_matrix = Array2::from_shape_vec((nrows, input_length), decoded_storage)
-            .expect("Decoded matrix shape mismatch");
+            .expect("decoded matrix shape mismatch");
 
-        let decoding_stats = DecodingStats::new(
-            nrows,
-            successful_rows.load(Ordering::Relaxed),
-            failed_rows.load(Ordering::Relaxed),
-            total_iterations.load(Ordering::Relaxed),
-            max_iterations_hit.load(Ordering::Relaxed),
-        );
-
-        (decoded_matrix, decoding_stats)
+        (
+            decoded_matrix,
+            DecodingStats::new(
+                nrows,
+                successful_rows.load(Ordering::Relaxed),
+                failed_rows.load(Ordering::Relaxed),
+                total_iterations.load(Ordering::Relaxed),
+                max_iterations_hit.load(Ordering::Relaxed),
+            ),
+        )
     }
 
-    fn reconstruct_field_elements<F: PrimeField<BigInt = BigInt<4>>>(
+    fn reconstruct_columns(
         decoded_matrix: &Array2<GF2>,
         input_length: usize,
-    ) -> Vec<F> {
+        bit_len: usize,
+    ) -> Vec<F2PowElement> {
         const CHUNK_SIZE: usize = 32;
 
         (0..input_length)
             .into_par_iter()
             .with_min_len(CHUNK_SIZE)
-            .map(|i| column_to_field_element::<F>(decoded_matrix, i))
+            .map(|col_idx| {
+                let mut column = F2PowElement::zero(bit_len);
+                for row_idx in 0..bit_len {
+                    if decoded_matrix[(row_idx, col_idx)].is_one() {
+                        column.set_bit(row_idx, true);
+                    }
+                }
+                column
+            })
             .collect()
     }
 }
 
-/// Setup the secret sharing scheme parameters.
-/// 
-/// Delegates to the shared implementation in aos_core.
-pub fn setup<F: PrimeField>(params: CodeInitParams, c: u32) -> SecretParams<LdpcCode, F> {
-    aos_core::setup(params, c)
+pub fn setup(params: CodeInitParams) -> SecretParams<LdpcCode> {
+    aos_core::setup(params)
 }
 
-/// Deal a secret into shares using parallel processing.
-pub fn deal<F: PrimeField>(pp: &SecretParams<LdpcCode, F>, s: F) -> Shares<F> {
-    aos_core::deal_with_strategy::<F, ParallelStrategy>(pp, s)
+pub fn deal(pp: &SecretParams<LdpcCode>, secret: &F2PowElement) -> Shares {
+    aos_core::deal_with_strategy::<ParallelStrategy>(pp, secret)
 }
 
-/// Reconstruct a secret from shares using parallel processing.
-pub fn reconstruct<F: PrimeField<BigInt = BigInt<4>>>(
-    pp: &SecretParams<LdpcCode, F>, 
-    shares: &Shares<F>
-) -> (F, Option<ReconstructMetrics>) {
-    aos_core::reconstruct_with_strategy::<F, ParallelStrategy>(pp, shares)
+pub fn reconstruct(
+    pp: &SecretParams<LdpcCode>,
+    shares: &Shares,
+) -> (Option<F2PowElement>, Option<ReconstructMetrics>) {
+    aos_core::reconstruct_with_strategy::<ParallelStrategy>(pp, shares)
 }

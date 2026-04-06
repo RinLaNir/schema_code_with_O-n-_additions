@@ -1,16 +1,16 @@
-mod summary_tab;
+mod acceleration_tab;
 mod details_tab;
 mod phases_tab;
-mod visualization_tab;
-mod acceleration_tab;
-mod utils;
+mod summary_tab;
 pub mod table_builder;
+mod utils;
+mod visualization_tab;
 
-pub use summary_tab::SummaryTab;
+pub use acceleration_tab::AccelerationTab;
 pub use details_tab::DetailsTab;
 pub use phases_tab::PhasesTab;
+pub use summary_tab::SummaryTab;
 pub use visualization_tab::VisualizationTab;
-pub use acceleration_tab::AccelerationTab;
 
 #[derive(Clone, PartialEq)]
 pub enum ResultsTab {

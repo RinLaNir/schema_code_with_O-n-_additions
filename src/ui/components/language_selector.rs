@@ -1,5 +1,5 @@
-use eframe::egui::{self, RichText, Ui};
 use crate::ui::localization::Language;
+use eframe::egui::{self, RichText, Ui};
 
 /// Renders language switcher buttons (EN / UA) and returns the chosen language.
 pub struct LanguageSelector;
@@ -14,10 +14,16 @@ impl LanguageSelector {
             .inner_margin(4)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new("EN").text_style(egui::TextStyle::Body)).clicked() {
+                    if ui
+                        .button(RichText::new("EN").text_style(egui::TextStyle::Body))
+                        .clicked()
+                    {
                         selected = Some(Language::English);
                     }
-                    if ui.button(RichText::new("UA").text_style(egui::TextStyle::Body)).clicked() {
+                    if ui
+                        .button(RichText::new("UA").text_style(egui::TextStyle::Body))
+                        .clicked()
+                    {
                         selected = Some(Language::Ukrainian);
                     }
                 });

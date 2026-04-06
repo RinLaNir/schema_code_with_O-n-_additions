@@ -1,7 +1,7 @@
-use eframe::egui::{self, RichText, Ui};
-use crate::ui::localization::{Localization, Language};
-use crate::ui::tabs::Tab;
 use super::language_selector::LanguageSelector;
+use crate::ui::localization::{Language, Localization};
+use crate::ui::tabs::Tab;
+use eframe::egui::{self, RichText, Ui};
 
 pub struct Header {
     localization: Localization,
@@ -9,15 +9,13 @@ pub struct Header {
 
 impl Header {
     pub fn new(localization: Localization) -> Self {
-        Self {
-            localization,
-        }
+        Self { localization }
     }
-    
+
     pub fn update(&mut self, localization: &Localization) {
         self.localization = localization.clone();
     }
-    
+
     pub fn show_minimal(&self, ui: &mut Ui) -> Option<Language> {
         let mut selected_language = None;
 
@@ -42,7 +40,8 @@ impl Header {
                 selected_language = LanguageSelector::show(ui);
 
                 let mut nav_button = |key: &str, tab: Tab| {
-                    let label = RichText::new(self.localization.get(key)).text_style(egui::TextStyle::Body);
+                    let label =
+                        RichText::new(self.localization.get(key)).text_style(egui::TextStyle::Body);
                     if ui.button(label).clicked() {
                         *current_tab = tab;
                     }

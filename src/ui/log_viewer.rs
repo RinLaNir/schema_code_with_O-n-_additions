@@ -1,5 +1,5 @@
+use crate::ui::logging::{LogLevel, LogMessage, Logger};
 use eframe::egui::{self, Color32, RichText, ScrollArea, TextStyle};
-use crate::ui::logging::{Logger, LogLevel, LogMessage};
 use std::sync::Arc;
 
 pub struct LogViewer {
@@ -39,11 +39,11 @@ impl LogViewer {
             ui.checkbox(&mut self.error_enabled, "Error");
             ui.checkbox(&mut self.success_enabled, "Success");
             ui.checkbox(&mut self.progress_enabled, "Progress");
-            
+
             ui.separator();
-            
+
             ui.checkbox(&mut self.autoscroll, "Auto-scroll");
-            
+
             if ui.button("Clear").clicked() {
                 self.logger.clear();
             }
@@ -57,9 +57,9 @@ impl LogViewer {
     fn log_area(&mut self, ui: &mut egui::Ui) {
         let text_style = TextStyle::Body;
         let row_height = ui.text_style_height(&text_style) + 4.0;
-        
+
         let messages = self.logger.get_messages();
-        
+
         let filtered_messages: Vec<&LogMessage> = messages
             .iter()
             .filter(|msg| {
@@ -70,9 +70,12 @@ impl LogViewer {
                     LogLevel::Success => self.success_enabled,
                     LogLevel::Progress => self.progress_enabled,
                 };
-                
+
                 let text_match = self.filter_text.is_empty()
-                    || msg.message.to_lowercase().contains(&self.filter_text.to_lowercase());
+                    || msg
+                        .message
+                        .to_lowercase()
+                        .contains(&self.filter_text.to_lowercase());
 
                 level_match && text_match
             })

@@ -34,23 +34,43 @@ pub const MAX_CONTENT_WIDTH: f32 = 1200.0;
 // --- Theme-aware colors ---
 
 fn themed_color(ui: &Ui, dark: Color32, light: Color32) -> Color32 {
-    if ui.visuals().dark_mode { dark } else { light }
+    if ui.visuals().dark_mode {
+        dark
+    } else {
+        light
+    }
 }
 
 fn success_color(ui: &Ui) -> Color32 {
-    themed_color(ui, Color32::from_rgb(80, 200, 80), Color32::from_rgb(20, 140, 20))
+    themed_color(
+        ui,
+        Color32::from_rgb(80, 200, 80),
+        Color32::from_rgb(20, 140, 20),
+    )
 }
 
 pub fn warning_color(ui: &Ui) -> Color32 {
-    themed_color(ui, Color32::from_rgb(230, 200, 60), Color32::from_rgb(180, 140, 0))
+    themed_color(
+        ui,
+        Color32::from_rgb(230, 200, 60),
+        Color32::from_rgb(180, 140, 0),
+    )
 }
 
 pub fn error_color(ui: &Ui) -> Color32 {
-    themed_color(ui, Color32::from_rgb(230, 80, 80), Color32::from_rgb(180, 40, 40))
+    themed_color(
+        ui,
+        Color32::from_rgb(230, 80, 80),
+        Color32::from_rgb(180, 40, 40),
+    )
 }
 
 fn secondary_color(ui: &Ui) -> Color32 {
-    themed_color(ui, Color32::from_rgb(230, 160, 100), Color32::from_rgb(180, 100, 40))
+    themed_color(
+        ui,
+        Color32::from_rgb(230, 160, 100),
+        Color32::from_rgb(180, 100, 40),
+    )
 }
 
 // --- Threshold-based color selectors ---
@@ -133,11 +153,7 @@ pub fn data_bar_gradient(ui: &Ui, percentage: f64) -> Color32 {
         )
     } else {
         let t = (percentage - 0.5) * 2.0;
-        (
-            230,
-            (180.0 - t * 100.0) as u8,
-            (60.0 + t * 20.0) as u8,
-        )
+        (230, (180.0 - t * 100.0) as u8, (60.0 + t * 20.0) as u8)
     };
 
     Color32::from_rgba_unmultiplied(r, g, b, alpha)

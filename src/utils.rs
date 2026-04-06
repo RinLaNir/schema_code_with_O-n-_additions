@@ -1,9 +1,9 @@
 //! Shared utility functions.
 
+use crate::types::Share;
+use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
-use crate::types::Share;
 
 /// Remove shares from a vector — supports both absolute count and percentage.
 ///
@@ -34,12 +34,17 @@ pub fn remove_random_shares(shares: &mut Vec<Share>, num_to_remove: isize, seed:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::Array1;
     use ldpc_toolbox::gf2::GF2;
+    use ndarray::Array1;
     use num_traits::Zero;
 
     fn make_shares(n: usize) -> Vec<Share> {
-        (0..n).map(|i| Share { y: Array1::from_elem(1, GF2::zero()), i: i as u32 }).collect()
+        (0..n)
+            .map(|i| Share {
+                y: Array1::from_elem(1, GF2::zero()),
+                i: i as u32,
+            })
+            .collect()
     }
 
     #[test]
@@ -88,7 +93,10 @@ mod tests {
         remove_random_shares(&mut shares2, 5, Some(42));
         let indices2: Vec<u32> = shares2.iter().map(|s| s.i).collect();
 
-        assert_eq!(indices1, indices2, "Same seed must produce identical removal patterns");
+        assert_eq!(
+            indices1, indices2,
+            "Same seed must produce identical removal patterns"
+        );
     }
 
     #[test]
@@ -101,6 +109,9 @@ mod tests {
         remove_random_shares(&mut shares2, 5, Some(2));
         let indices2: Vec<u32> = shares2.iter().map(|s| s.i).collect();
 
-        assert_ne!(indices1, indices2, "Different seeds should produce different removal patterns");
+        assert_ne!(
+            indices1, indices2,
+            "Different seeds should produce different removal patterns"
+        );
     }
 }

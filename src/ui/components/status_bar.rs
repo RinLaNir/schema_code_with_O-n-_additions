@@ -1,5 +1,5 @@
-use eframe::egui::{self, Color32, RichText, Ui};
 use crate::ui::localization::Localization;
+use eframe::egui::{self, Color32, RichText, Ui};
 
 #[derive(PartialEq, Clone)]
 pub enum BenchmarkState {
@@ -29,21 +29,26 @@ impl StatusBar {
             showing_command_line: false,
         }
     }
-    
-    pub fn update(&mut self, state: BenchmarkState, message: Option<String>, localization: &Localization) {
+
+    pub fn update(
+        &mut self,
+        state: BenchmarkState,
+        message: Option<String>,
+        localization: &Localization,
+    ) {
         self.state = state;
         self.status_message = message;
         self.localization = localization.clone();
     }
-    
+
     pub fn set_state(&mut self, state: BenchmarkState) {
         self.state = state;
     }
-    
+
     pub fn set_message(&mut self, message: Option<String>) {
         self.status_message = message;
     }
-    
+
     pub fn get_message(&self) -> Option<&str> {
         self.status_message.as_deref()
     }
@@ -55,7 +60,7 @@ impl StatusBar {
     pub fn toggle_command_line(&mut self) {
         self.showing_command_line = !self.showing_command_line;
     }
-    
+
     fn state_color(&self) -> Color32 {
         match &self.state {
             BenchmarkState::Running => Color32::from_rgb(0, 128, 255),
@@ -76,7 +81,10 @@ impl StatusBar {
                         ui.label(RichText::new(message).color(self.state_color()));
                     }
                     None => {
-                        ui.label(RichText::new(self.localization.get("status_ready")).color(Color32::GRAY));
+                        ui.label(
+                            RichText::new(self.localization.get("status_ready"))
+                                .color(Color32::GRAY),
+                        );
                     }
                 },
             }

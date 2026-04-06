@@ -1,6 +1,6 @@
+use chrono::Local;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use chrono::Local;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogLevel {
@@ -9,7 +9,7 @@ pub enum LogLevel {
     Error,
     Success,
     Progress,
-} 
+}
 
 #[derive(Debug, Clone)]
 pub struct LogMessage {
@@ -35,7 +35,7 @@ impl LogMessage {
 pub struct Logger {
     messages: Arc<Mutex<Vec<LogMessage>>>,
     max_messages: usize,
-} 
+}
 
 impl Logger {
     pub fn new(max_messages: usize) -> Self {

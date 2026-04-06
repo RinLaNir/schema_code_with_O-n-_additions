@@ -27,7 +27,7 @@ const TRANSLATIONS: &[(&str, &str, &str)] = &[
     // Configuration section
     ("config_title", "Benchmark Configuration", "Налаштування бенчмарків"),
     ("basic_params", "Basic Parameters", "Базові параметри"),
-    ("c_value", "C value:", "C значення:"),
+    ("secret_bits", "Secret bits:", "Бітова довжина секрету:"),
     ("particles_to_remove", "Particles to remove:", "Кількість часток для видалення:"),
     ("as_percentage", "As percentage", "Як відсоток"),
     ("llr_value", "LLR value:", "LLR значення:"),
@@ -40,7 +40,8 @@ const TRANSLATIONS: &[(&str, &str, &str)] = &[
     ("implementation_parallel", "Parallel", "Паралельна"),
 
     // Secret parameters
-    ("secret_value", "Secret:", "Секрет:"),
+    ("secret_hex", "Secret (hex):", "Секрет (hex):"),
+    ("secret_hex_invalid", "Invalid hex secret for the selected bit length", "Некоректний hex-секрет для вибраної бітової довжини"),
     ("secret_random", "Random", "Випадковий"),
     ("secret_hex", "Hex", "Hex"),
     ("secret_seed", "Seed:", "Seed:"),
@@ -86,7 +87,7 @@ const TRANSLATIONS: &[(&str, &str, &str)] = &[
     ("instruction_3", "3. After completion, go to the \"Results\" tab to view results.", "3. Після завершення, перейдіть на вкладку \"Результати\" для перегляду результатів."),
     ("instruction_4", "4. You can save results to JSON files for further analysis.", "4. Ви можете зберегти результати в JSON файлах для подальшого аналізу."),
     ("benchmark_params_heading", "Benchmark options", "Опції бенчмарку"),
-    ("param_c_desc", "C value: determines the maximum size of random coefficients.", "C значення: визначає максимальний розмір випадкових коефіцієнтів."),
+    ("param_c_desc", "Secret bits: length of the binary secret in F_{2^ell}.", "Біти секрету: довжина бінарного секрету в F_{2^ell}."),
     ("param_runs_desc", "Number of runs: how many times to run each configuration to collect statistics.", "Кількість повторень: скільки разів запускати кожну конфігурацію для збору статистики."),
     ("param_impl_desc", "Implementation: sequential or parallel version of the algorithm.", "Реалізація: послідовна або паралельна версія алгоритму."),
     ("param_decoder_desc", "Decoder type: different methods of decoding LDPC codes.", "Тип декодера: різні методи декодування LDPC кодів."),

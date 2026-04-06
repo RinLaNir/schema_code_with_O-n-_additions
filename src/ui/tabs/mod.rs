@@ -1,7 +1,7 @@
-mod configure_tab;
-mod results_tab;
-mod console_tab;
 mod about_tab;
+mod configure_tab;
+mod console_tab;
+mod results_tab;
 
 #[derive(PartialEq)]
 pub enum Tab {
@@ -11,7 +11,7 @@ pub enum Tab {
     About,
 }
 
-pub use configure_tab::{ConfigureTab, ConfigureAction};
-pub use results_tab::ResultsTab;
-pub use console_tab::ConsoleTab;
 pub use about_tab::AboutTab;
+pub use configure_tab::{ConfigureAction, ConfigureTab};
+pub use console_tab::ConsoleTab;
+pub use results_tab::ResultsTab;

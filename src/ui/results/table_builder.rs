@@ -1,6 +1,6 @@
+use crate::ui::constants::{self, TABLE_ROW_HEIGHT};
 use eframe::egui::{self, RichText, Ui};
 use egui_extras::{Column, TableBuilder};
-use crate::ui::constants::{self, TABLE_ROW_HEIGHT};
 
 #[derive(Clone)]
 pub struct TableColumn {
@@ -19,12 +19,12 @@ impl TableColumn {
             initial_width: None,
         }
     }
-    
+
     pub fn with_min_width(mut self, width: f32) -> Self {
         self.min_width = width;
         self
     }
-    
+
     pub fn fixed(mut self) -> Self {
         self.resizable = false;
         self
@@ -36,14 +36,18 @@ impl TableColumn {
         }
         if let Some(initial) = self.initial_width {
             return if self.resizable {
-                Column::initial(initial).at_least(self.min_width).resizable(true)
+                Column::initial(initial)
+                    .at_least(self.min_width)
+                    .resizable(true)
             } else {
                 Column::exact(initial)
             };
         }
         let estimated_width = (available_width / num_columns as f32).max(self.min_width);
         if self.resizable {
-            Column::initial(estimated_width).at_least(self.min_width).resizable(true)
+            Column::initial(estimated_width)
+                .at_least(self.min_width)
+                .resizable(true)
         } else {
             Column::auto().at_least(self.min_width)
         }
@@ -66,27 +70,31 @@ impl<'a> ResultsTable<'a> {
             row_height: TABLE_ROW_HEIGHT,
         }
     }
-    
+
     pub fn show<F>(self, ui: &mut Ui, row_count: usize, mut body_fn: F)
     where
         F: FnMut(usize, &mut egui_extras::TableRow),
     {
         let available_width = ui.available_width();
-        
+
         ui.push_id(self.id, |ui| {
             let mut builder = TableBuilder::new(ui)
                 .striped(self.striped)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                 .min_scrolled_height(0.0)
                 .vscroll(false);
-        
+
             let num_columns = self.columns.len();
             for (i, col) in self.columns.iter().enumerate() {
-                builder = builder.column(col.to_egui_column(i == num_columns - 1, available_width, num_columns));
+                builder = builder.column(col.to_egui_column(
+                    i == num_columns - 1,
+                    available_width,
+                    num_columns,
+                ));
             }
-            
+
             let mut row_idx = 0;
-            
+
             builder
                 .header(self.row_height, |mut header| {
                     for col in &self.columns {
